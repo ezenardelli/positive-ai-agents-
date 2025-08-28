@@ -13,7 +13,8 @@ import {
   SidebarMenuSkeleton,
 } from '@/components/ui/sidebar';
 import { Logo } from './icons';
-import type { Agent, AgentId, Conversation, User } from '@/lib/types';
+import type { Agent, AgentId, Conversation } from '@/lib/types';
+import type { User } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
 import { BotMessageSquare, History, LogOut, MessageSquare, Plus } from 'lucide-react';
@@ -167,7 +168,7 @@ export default function SidebarContentComponent({
           <DropdownMenuTrigger asChild>
             <div className="flex items-center gap-3 p-2 cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors w-full">
               <Avatar className="h-9 w-9">
-                <AvatarImage src={user.photoURL} alt={user.displayName} data-ai-hint="profile picture" />
+                {user.photoURL && <AvatarImage src={user.photoURL} alt={user.displayName || 'User'} data-ai-hint="profile picture" />}
                 <AvatarFallback>{user.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col text-left overflow-hidden">

@@ -2,7 +2,9 @@
 
 import { useRouter } from 'next/navigation';
 import { createContext, useState, useEffect, type ReactNode } from 'react';
-import type { User } from '@/lib/types';
+import type { User } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 
 type AuthContextType = {
   user: User | null;
@@ -19,45 +21,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    // Mock checking for a logged-in user in localStorage
-    try {
-      const storedUser = localStorage.getItem('positive-user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // User is signed in.
+        setUser(user);
+      } else {
+        // User is signed out.
+        setUser(null);
       }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const login = async () => {
+    setLoading(true);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+        'hd': 'positiveit.com.ar'
+    });
+    try {
+      await signInWithPopup(auth, provider);
+      router.push('/');
     } catch (error) {
-      // Could be in a server environment
-      console.log("localStorage not available");
+      console.error("Error during sign-in:", error);
+      // Handle error, e.g., show a toast notification
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  const login = () => {
-    // Mock login process
-    const mockUser: User = {
-      uid: 'user_123',
-      email: 'juan.perez@positiveit.com.ar',
-      displayName: 'Juan Pérez',
-      photoURL: 'https://picsum.photos/100/100',
-    };
-    try {
-        localStorage.setItem('positive-user', JSON.stringify(mockUser));
-    } catch (error) {
-        console.error("Could not save user to localStorage", error);
-    }
-    setUser(mockUser);
-    router.push('/');
   };
 
-  const logout = () => {
+  const logout = async () => {
+    setLoading(true);
     try {
-        localStorage.removeItem('positive-user');
+      await signOut(auth);
+      router.push('/login');
     } catch (error) {
-        console.error("Could not remove user from localStorage", error);
+      console.error("Error during sign-out:", error);
+    } finally {
+      setLoading(false);
     }
-    setUser(null);
-    router.push('/login');
   };
 
   const value = { user, loading, login, logout };

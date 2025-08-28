@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/sidebar';
 import SidebarContentComponent from '@/components/sidebar-content';
 import { useEffect, useState, useTransition } from 'react';
-import type { Agent, AgentId, Conversation, Message, User } from '@/lib/types';
+import type { Agent, AgentId, Conversation, Message } from '@/lib/types';
 import { AGENTS } from '@/lib/data';
 import {
   createConversationAction,
@@ -20,6 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 
 export default function AppShell() {
   const { user, loading: authLoading, logout } = useAuth();
@@ -43,7 +44,7 @@ export default function AppShell() {
 
   useEffect(() => {
     if(user) {
-      getHistoryAction().then(history => {
+      getHistoryAction(user.uid).then(history => {
         setConversations(history);
         setIsLoading(false);
       });
@@ -63,9 +64,10 @@ export default function AppShell() {
   };
 
   const handleCreateNewConversation = () => {
+    if (!user) return;
     startTransition(async () => {
       try {
-        const newConversation = await createConversationAction(activeAgentId);
+        const newConversation = await createConversationAction(user.uid, activeAgentId);
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
       } catch (error) {
@@ -108,6 +110,13 @@ export default function AppShell() {
               : c
           )
         );
+         // Find conversation and update title if it's new
+         const conversation = conversations.find(c => c.id === activeConversationId);
+         if (conversation && conversation.messages.length <= 2) {
+             getHistoryAction(user!.uid).then(history => {
+                 setConversations(history);
+             });
+         }
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -137,7 +146,7 @@ export default function AppShell() {
     <SidebarProvider>
       <Sidebar>
         <SidebarContentComponent
-          user={user}
+          user={user as User}
           agents={agents}
           conversations={conversations}
           activeAgentId={activeAgentId}
