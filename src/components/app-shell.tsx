@@ -34,18 +34,24 @@ export default function AppShell() {
   const [isPending, startTransition] = useTransition();
 
   const { toast } = useToast();
-  
+
   useEffect(() => {
     if (!authLoading && !user) {
       router.replace('/login');
     }
   }, [user, authLoading, router]);
 
-
   useEffect(() => {
-    if(user) {
+    if (user) {
+      setIsLoading(true);
       getHistoryAction(user.uid).then(history => {
         setConversations(history);
+        const agentConversations = history.filter(c => c.agentId === activeAgentId);
+        if (agentConversations.length > 0) {
+          setActiveConversationId(agentConversations[0].id);
+        } else {
+          handleCreateNewConversation(activeAgentId);
+        }
         setIsLoading(false);
       });
     }
@@ -56,18 +62,23 @@ export default function AppShell() {
 
   const handleSelectAgent = (agentId: AgentId) => {
     setActiveAgentId(agentId);
-    setActiveConversationId(null);
+    const agentConversations = conversations.filter(c => c.agentId === agentId);
+    if (agentConversations.length > 0) {
+      setActiveConversationId(agentConversations[0].id);
+    } else {
+      handleCreateNewConversation(agentId);
+    }
   };
-  
+
   const handleLogout = () => {
     logout();
   };
 
-  const handleCreateNewConversation = () => {
+  const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
     if (!user) return;
     startTransition(async () => {
       try {
-        const newConversation = await createConversationAction(user.uid, activeAgentId);
+        const newConversation = await createConversationAction(user.uid, agentIdToCreate);
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
       } catch (error) {
@@ -153,7 +164,7 @@ export default function AppShell() {
           activeConversationId={activeConversationId}
           onSelectAgent={handleSelectAgent}
           onSelectConversation={setActiveConversationId}
-          onNewConversation={handleCreateNewConversation}
+          onNewConversation={() => handleCreateNewConversation(activeAgentId)}
           onLogout={handleLogout}
           isLoading={isLoading || isPending}
         />

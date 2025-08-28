@@ -12,13 +12,16 @@ export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!loading && user) {
+ useEffect(() => {
+    // In testing mode with a mock user, we can redirect immediately.
+    // In a real scenario, this would check for an actual user object.
+    if (user) {
       router.replace('/');
     }
-  }, [user, loading, router]);
+  }, [user, router]);
 
-  if (loading || user) {
+  // Show a loader while redirecting
+  if (user) {
      return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -26,6 +29,7 @@ export default function LoginPage() {
     );
   }
 
+  // This part will likely not be seen when auth is mocked, but is kept for when we re-enable it.
   return (
     <main className="flex items-center justify-center min-h-screen bg-background p-4">
       <Card className="w-full max-w-sm shadow-xl border">
