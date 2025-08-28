@@ -14,7 +14,14 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
+// Environment check to determine if we are in "test mode"
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
+
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
+  if (isTestMode) {
+    return [];
+  }
   return await getConversations(userId);
 }
 
@@ -25,6 +32,16 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
   
+  // In test mode, we bypass database operations and return a simple echo.
+  if (isTestMode && conversationId === 'mock-conversation-id') {
+      const modelMessage: Message = {
+        role: 'model',
+        content: `(Modo de prueba) El LLM recibió tu mensaje: "${messageContent}"`,
+        createdAt: new Date(),
+      };
+      return modelMessage;
+  }
+
   const userMessage: Message = {
     role: 'user',
     content: messageContent,
@@ -60,7 +77,12 @@ export async function sendMessageAction(
     }
   } catch (error) {
     console.error("Error processing agent logic:", error);
-    responseContent = "Lo siento, ha ocurrido un error al procesar tu solicitud.";
+    // Provide a more specific error message if the API key is missing
+    if (error instanceof Error && error.message.includes('API key')) {
+        responseContent = "Error: La API Key de Gemini no está configurada. Por favor, revisa el archivo .env.";
+    } else {
+        responseContent = "Lo siento, ha ocurrido un error al procesar tu solicitud.";
+    }
   }
   
   modelMessage.content = responseContent;
@@ -84,5 +106,18 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
+  // If we don't have real Firebase credentials, return a mock conversation
+  if (isTestMode) {
+    const mockConversation: Conversation = {
+      id: 'mock-conversation-id',
+      userId: userId,
+      agentId: agentId,
+      clientContext: clientContext,
+      messages: [],
+      title: 'Conversación de Prueba',
+      createdAt: new Date(),
+    };
+    return mockConversation;
+  }
   return await createConversation(userId, agentId, clientContext);
 }
