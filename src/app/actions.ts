@@ -14,14 +14,7 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
-// Environment check to determine if we are in "test mode"
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-
-
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
-  if (isTestMode) {
-    return [];
-  }
   return await getConversations(userId);
 }
 
@@ -32,16 +25,12 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
   
-  // Bypass database operations in test mode for adding user message,
-  // but still proceed to call the LLM.
-  if (!isTestMode) {
-    const userMessage: Message = {
-      role: 'user',
-      content: messageContent,
-      createdAt: new Date(),
-    };
-    await addMessage(conversationId, userMessage);
-  }
+  const userMessage: Message = {
+    role: 'user',
+    content: messageContent,
+    createdAt: new Date(),
+  };
+  await addMessage(conversationId, userMessage);
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -71,7 +60,6 @@ export async function sendMessageAction(
     }
   } catch (error) {
     console.error("Error processing agent logic:", error);
-    // Provide a more specific error message if the API key is missing
     if (error instanceof Error && (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY'))) {
         responseContent = "Error: La API Key de Gemini no está configurada o no es válida. Por favor, revisa el archivo .env.";
     } else {
@@ -81,18 +69,14 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  // Bypass database operations in test mode
-  if (!isTestMode) {
-    await addMessage(conversationId, modelMessage);
+  await addMessage(conversationId, modelMessage);
 
-    const conversation = await getConversation(conversationId);
-    // Generate title only if the conversation is new (1 user message, 1 model message)
-    if (conversation && conversation.messages.length <= 1) { // Check for 1 message because we are not adding the user message in test mode
-      const { title } = await generateConversationTitle({
-        messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
-      });
-      await updateConversationTitle(conversationId, title);
-    }
+  const conversation = await getConversation(conversationId);
+  if (conversation && conversation.messages.length <= 2) { 
+    const { title } = await generateConversationTitle({
+      messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
+    });
+    await updateConversationTitle(conversationId, title);
   }
   
   return modelMessage;
@@ -104,18 +88,5 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-  // If we don't have real Firebase credentials, return a mock conversation
-  if (isTestMode) {
-    const mockConversation: Conversation = {
-      id: 'mock-conversation-id',
-      userId: userId,
-      agentId: agentId,
-      clientContext: clientContext,
-      messages: [],
-      title: 'Conversación de Prueba',
-      createdAt: new Date(),
-    };
-    return mockConversation;
-  }
   return await createConversation(userId, agentId, clientContext);
 }

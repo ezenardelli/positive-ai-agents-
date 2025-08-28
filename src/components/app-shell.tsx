@@ -50,24 +50,28 @@ export default function AppShell() {
         if (agentConversations.length > 0) {
           setActiveConversationId(agentConversations[0].id);
         } else {
+          // If no conversations exist for the active agent, create one.
           handleCreateNewConversation(activeAgentId);
         }
         setIsLoading(false);
+      }).catch(err => {
+        console.error("Failed to load history:", err);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo cargar el historial de conversaciones.',
+        });
+        setIsLoading(false);
       });
     }
-  }, [user]);
+  }, [user, activeAgentId]);
 
   const activeAgent = agents.find(a => a.id === activeAgentId)!;
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
   const handleSelectAgent = (agentId: AgentId) => {
     setActiveAgentId(agentId);
-    const agentConversations = conversations.filter(c => c.agentId === agentId);
-    if (agentConversations.length > 0) {
-      setActiveConversationId(agentConversations[0].id);
-    } else {
-      handleCreateNewConversation(agentId);
-    }
+    // The useEffect listening to activeAgentId will handle fetching/creating conversations
   };
 
   const handleLogout = () => {
@@ -115,19 +119,22 @@ export default function AppShell() {
         );
 
         setConversations(prev =>
-          prev.map(c =>
-            c.id === activeConversationId
-              ? { ...c, messages: [...c.messages, responseMessage] }
-              : c
-          )
+          prev.map(c => {
+            if (c.id === activeConversationId) {
+              // Replace optimistic user message with the one from the server if needed
+              // or just add the model response. For simplicity, we just add the response.
+              // A more robust solution might involve message IDs.
+              const existingMessages = c.messages.filter(m => m.role !== 'user' || m.content !== optimisticMessage.content);
+              return { ...c, messages: [...existingMessages, optimisticMessage, responseMessage] };
+            }
+            return c;
+          })
         );
+        
          // Find conversation and update title if it's new
-         const conversation = conversations.find(c => c.id === activeConversationId);
-         if (conversation && conversation.messages.length <= 2) {
-             getHistoryAction(user!.uid).then(history => {
-                 setConversations(history);
-             });
-         }
+         const updatedHistory = await getHistoryAction(user!.uid);
+         setConversations(updatedHistory);
+
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -166,7 +173,7 @@ export default function AppShell() {
           onSelectConversation={setActiveConversationId}
           onNewConversation={() => handleCreateNewConversation(activeAgentId)}
           onLogout={handleLogout}
-          isLoading={isLoading || isPending}
+          isLoading={isLoading}
         />
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
