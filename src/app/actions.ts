@@ -14,7 +14,10 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
+const IS_TEST_MODE = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === 'your-api-key';
+
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
+  if (IS_TEST_MODE) return [];
   return await getConversations(userId);
 }
 
@@ -24,6 +27,16 @@ export async function sendMessageAction(
   messageContent: string,
   clientContext?: string
 ): Promise<Message> {
+  
+  if (IS_TEST_MODE) {
+    // In test mode, just return a canned response
+    return {
+      role: 'model',
+      content: `Hola! Soy ${agentId}. Esto es una respuesta de prueba. El mensaje fue: "${messageContent}"`,
+      createdAt: new Date(),
+    };
+  }
+
   const userMessage: Message = {
     role: 'user',
     content: messageContent,
@@ -65,7 +78,6 @@ export async function sendMessageAction(
   modelMessage.content = responseContent;
   await addMessage(conversationId, modelMessage);
 
-  // Auto-title conversation if it's the first user message
   const conversation = await getConversation(conversationId);
   if (conversation && conversation.messages.length <= 2) {
     const { title } = await generateConversationTitle({
@@ -83,5 +95,17 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
+  if (IS_TEST_MODE) {
+    console.log("Running in test mode, creating mock conversation.");
+    return {
+      id: `mock-${Date.now()}`,
+      userId,
+      agentId,
+      clientContext: clientContext || undefined,
+      title: 'Nueva Conversación (Prueba)',
+      messages: [],
+      createdAt: new Date(),
+    };
+  }
   return await createConversation(userId, agentId, clientContext);
 }
