@@ -32,22 +32,16 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
   
-  // In test mode, we bypass database operations and return a simple echo.
-  if (isTestMode && conversationId === 'mock-conversation-id') {
-      const modelMessage: Message = {
-        role: 'model',
-        content: `(Modo de prueba) El LLM recibió tu mensaje: "${messageContent}"`,
-        createdAt: new Date(),
-      };
-      return modelMessage;
+  // Bypass database operations in test mode for adding user message,
+  // but still proceed to call the LLM.
+  if (!isTestMode) {
+    const userMessage: Message = {
+      role: 'user',
+      content: messageContent,
+      createdAt: new Date(),
+    };
+    await addMessage(conversationId, userMessage);
   }
-
-  const userMessage: Message = {
-    role: 'user',
-    content: messageContent,
-    createdAt: new Date(),
-  };
-  await addMessage(conversationId, userMessage);
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -78,23 +72,27 @@ export async function sendMessageAction(
   } catch (error) {
     console.error("Error processing agent logic:", error);
     // Provide a more specific error message if the API key is missing
-    if (error instanceof Error && error.message.includes('API key')) {
-        responseContent = "Error: La API Key de Gemini no está configurada. Por favor, revisa el archivo .env.";
+    if (error instanceof Error && (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY'))) {
+        responseContent = "Error: La API Key de Gemini no está configurada o no es válida. Por favor, revisa el archivo .env.";
     } else {
         responseContent = "Lo siento, ha ocurrido un error al procesar tu solicitud.";
     }
   }
   
   modelMessage.content = responseContent;
-  await addMessage(conversationId, modelMessage);
 
-  const conversation = await getConversation(conversationId);
-  // Generate title only if the conversation is new (1 user message, 1 model message)
-  if (conversation && conversation.messages.length <= 2) {
-    const { title } = await generateConversationTitle({
-      messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
-    });
-    await updateConversationTitle(conversationId, title);
+  // Bypass database operations in test mode
+  if (!isTestMode) {
+    await addMessage(conversationId, modelMessage);
+
+    const conversation = await getConversation(conversationId);
+    // Generate title only if the conversation is new (1 user message, 1 model message)
+    if (conversation && conversation.messages.length <= 1) { // Check for 1 message because we are not adding the user message in test mode
+      const { title } = await generateConversationTitle({
+        messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
+      });
+      await updateConversationTitle(conversationId, title);
+    }
   }
   
   return modelMessage;
