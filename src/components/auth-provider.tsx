@@ -15,23 +15,35 @@ type AuthContextType = {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
-const hasFirebaseConfig = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-
 // This is a mock user for testing environments
 const mockUser = {
     uid: 'mock-user-id',
     displayName: 'Test User',
     email: 'test@example.com',
     photoURL: 'https://picsum.photos/100/100',
+    // Add other fields to match the User type to avoid type errors
+    emailVerified: true,
+    isAnonymous: false,
+    metadata: {},
+    providerData: [],
+    refreshToken: 'mock-token',
+    tenantId: null,
+    delete: async () => {},
+    getIdToken: async () => 'mock-id-token',
+    getIdTokenResult: async () => ({ token: 'mock-id-token', claims: {}, authTime: '', issuedAtTime: '', signInProvider: null, signInSecondFactor: null, expirationTime: '' }),
+    reload: async () => {},
+    toJSON: () => ({}),
+    providerId: 'password', // or 'google.com', etc.
 } as User;
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+// Use a separate hook for the FORCE_TEST_MODE flag
+export function AuthProvider({ children, forceTestMode = false }: { children: ReactNode, forceTestMode?: boolean }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!hasFirebaseConfig) {
-      console.warn("Firebase config not found. App is in test mode.");
+    // If test mode is forced, bypass Firebase entirely
+    if (forceTestMode) {
       setUser(mockUser);
       setLoading(false);
       return;
@@ -53,11 +65,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [forceTestMode]);
 
   const login = async () => {
-    if (!hasFirebaseConfig) {
-      setUser(mockUser); // Set mock user on login click in test mode
+    if (forceTestMode) {
+      setUser(mockUser);
       return;
     }
     setLoading(true);
@@ -75,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    if (!hasFirebaseConfig) {
+    if (forceTestMode) {
         setUser(null);
         return;
     };

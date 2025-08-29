@@ -21,8 +21,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { Loader2 } from 'lucide-react';
 import LoginPage from './login-page';
 
+// IMPORTANT: Set this to `true` to bypass Firebase Auth for local/preview testing.
+// Set to `false` for production deployment with real authentication.
+const FORCE_TEST_MODE = false;
+
 export default function AppShell() {
-  const { user, loading: authLoading, logout, login } = useAuth();
+  const { user, loading: authLoading, logout, login } = useAuth(FORCE_TEST_MODE);
   
   const [agents] = useState<Agent[]>(AGENTS);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -38,7 +42,6 @@ export default function AppShell() {
     
     startSendMessageTransition(async () => {
       try {
-        setIsUiLoading(true);
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
@@ -49,8 +52,6 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo crear una nueva conversación.',
         });
-      } finally {
-        setIsUiLoading(false);
       }
     });
   };
@@ -65,15 +66,16 @@ export default function AppShell() {
     getHistoryAction(user.uid)
       .then(history => {
         const agentHistory = history.filter(c => c.agentId === activeAgentId);
-        // Put agent history at the start, then other agents
-        const sortedHistory = [...agentHistory, ...history.filter(c => c.agentId !== activeAgentId)];
+        const otherHistory = history.filter(c => c.agentId !== activeAgentId);
+        const sortedHistory = [...agentHistory, ...otherHistory];
         setConversations(sortedHistory);
   
         if (agentHistory.length > 0) {
           setActiveConversationId(agentHistory[0].id);
         } else {
-          // No history for this agent, create a new conversation
-          handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
+          // No history for this agent, create a new conversation for them
+          const newClientContext = agentHistory.length > 0 ? agentHistory[0].clientContext : (activeAgent.needsClientContext ? CLIENTS[0].id : undefined);
+          handleCreateNewConversation(activeAgentId, newClientContext);
         }
       })
       .catch(err => {
@@ -98,7 +100,7 @@ export default function AppShell() {
   const handleSelectAgent = (agentId: AgentId) => {
     if (agentId !== activeAgentId) {
       setIsUiLoading(true);
-      setActiveConversationId(null);
+      setActiveConversationId(null); // This will trigger the useEffect to load/create convos
       setActiveAgentId(agentId);
     }
   };
@@ -108,6 +110,7 @@ export default function AppShell() {
 
     const optimisticUserMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     
+    // Optimistic UI update for user message
     setConversations(prev =>
       prev.map(c =>
         c.id === activeConversationId
@@ -124,16 +127,16 @@ export default function AppShell() {
           message,
           activeConversation?.clientContext
         );
-
+        
+        // Final state update with model response
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-               // Replace placeholder user message with nothing, and add both final user and model messages
-               const otherMessages = c.messages.filter(m => m.content !== optimisticUserMessage.content);
-               const updatedMessages = [...otherMessages, optimisticUserMessage, responseMessage];
+               const updatedMessages = [...c.messages, responseMessage];
                
                // Auto-update title on first real model response
-               if (c.messages.length <= 1) { 
+               if (c.messages.length < 2) { 
+                 // Fetch the updated history to get the new title
                  getHistoryAction(user.uid).then(updatedHistory => {
                     const freshConvo = updatedHistory.find(uh => uh.id === c.id);
                     if (freshConvo) {
@@ -146,6 +149,7 @@ export default function AppShell() {
             return c;
           })
         );
+
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -156,14 +160,14 @@ export default function AppShell() {
         // Rollback optimistic message
         setConversations(prev =>
             prev.map(c =>
-                c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.content !== optimisticUserMessage.content)} : c
+                c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id)} : c
             )
         );
       }
     });
   };
   
-  if (authLoading) {
+  if (authLoading || (!user && !FORCE_TEST_MODE)) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -195,7 +199,7 @@ export default function AppShell() {
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
         <ChatInterface
-          key={activeConversationId}
+          key={activeConversationId} // Re-mount when conversation changes
           agent={activeAgent}
           conversation={activeConversation}
           onSendMessage={handleSendMessage}

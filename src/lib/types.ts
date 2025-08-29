@@ -1,6 +1,7 @@
 export type Role = 'user' | 'model';
 
 export type Message = {
+  id?: string; // Optional ID for optimistic UI
   role: Role;
   content: string;
   createdAt: Date;

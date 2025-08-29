@@ -19,8 +19,16 @@ import {
 // Use the presence of Firebase credentials to determine if we are in production
 const isProduction = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
+// Mock database for test mode
+let mockConversations: Conversation[] = [];
+let conversationIdCounter = 0;
+
+
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
-  if (!isProduction) return Promise.resolve([]);
+  if (!isProduction) {
+    // Return a copy to prevent mutation issues
+    return Promise.resolve(JSON.parse(JSON.stringify(mockConversations.filter(c => c.userId === userId))));
+  }
   return await getConversations(userId);
 }
 
@@ -31,20 +39,37 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
 
+  let userMessage: Message;
+
+  // In production, save the user message to Firestore
   if (isProduction && conversationId) {
-      const userMessage: Message = {
+      userMessage = {
         role: 'user',
         content: messageContent,
         createdAt: new Date(),
       };
       await addMessage(conversationId, userMessage);
+  } else if (!isProduction) {
+    // In test mode, add to mock DB
+     userMessage = {
+        id: `msg-${Date.now()}`,
+        role: 'user',
+        content: messageContent,
+        createdAt: new Date(),
+      };
+    const convo = mockConversations.find(c => c.id === conversationId);
+    if(convo) {
+      convo.messages.push(userMessage);
+    }
   }
+
 
   let responseContent = '';
   const modelMessage: Message = {
     role: 'model',
     content: 'Error',
     createdAt: new Date(),
+    id: `msg-${Date.now() + 1}`,
   };
 
   try {
@@ -54,7 +79,7 @@ export async function sendMessageAction(
 
     if (agentId === 'minutaMaker') {
       const clientId = clientContext || 'mock-client';
-      const pastParticipants = !isProduction ? [] : (await suggestParticipants({ clientId })).suggestedParticipants;
+      const pastParticipants = (await suggestParticipants({ clientId })).suggestedParticipants;
       
       const result = await generateMeetingMinutes({
         transcript: messageContent,
@@ -84,12 +109,22 @@ export async function sendMessageAction(
     await addMessage(conversationId, modelMessage);
 
     const conversation = await getConversation(conversationId);
-    // Only generate title for the very first exchange.
     if (conversation && conversation.messages.length <= 2) { 
       const { title } = await generateConversationTitle({
         messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
       });
       await updateConversationTitle(conversationId, title);
+    }
+  } else if (!isProduction) {
+    const convo = mockConversations.find(c => c.id === conversationId);
+    if (convo) {
+      convo.messages.push(modelMessage);
+      if(convo.messages.length <= 2) {
+        const { title } = await generateConversationTitle({
+            messages: convo.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
+        });
+        convo.title = title;
+      }
     }
   }
   
@@ -103,16 +138,17 @@ export async function createConversationAction(
   clientContext?: string,
 ): Promise<Conversation> {
    if (!isProduction) {
-    // This is a mock for local/testing environments without firebase
-    return {
-      id: `mock-convo-${Date.now()}`,
-      userId: 'mock-user-id',
+    const newConversation: Conversation = {
+      id: `mock-convo-${conversationIdCounter++}`,
+      userId: userId,
       agentId,
-      clientContext: clientContext || 'mock-client',
+      clientContext: clientContext || (agentId === 'minutaMaker' ? 'cliente_A' : undefined),
       title: 'Nueva Conversación de Prueba',
       messages: [],
       createdAt: new Date(),
     };
+    mockConversations.unshift(newConversation); // Add to the beginning
+    return Promise.resolve(JSON.parse(JSON.stringify(newConversation)));
   }
   return await createConversation(userId, agentId, clientContext);
 }
