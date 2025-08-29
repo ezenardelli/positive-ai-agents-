@@ -28,7 +28,7 @@ import { generateMeetingMinutes } from '@/ai/flows/generate-meeting-minutes';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = false;
+const FORCE_TEST_MODE = true;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
@@ -43,15 +43,15 @@ export default function AppShell() {
   const handleCreateNewConversation = async (): Promise<void> => {
     if (!user) return;
     
-    let newConversation: Conversation;
-    
+    setIsUiLoading(true);
     try {
+        let newConversation: Conversation;
         if (FORCE_TEST_MODE) {
             console.log("[AppShell Test Mode] Creating new MOCK conversation (Client-side)");
             newConversation = {
                 id: `mock_convo_${Date.now()}`,
                 userId: user.uid,
-                agentId: 'posiAgent',
+                agentId: 'posiAgent', // Default agent
                 clientContext: undefined,
                 messages: [],
                 title: 'Nueva Conversión',
@@ -59,7 +59,6 @@ export default function AppShell() {
             };
         } else {
             console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
-            // New conversations always start with posiAgent by default
             const createdConvo = await createConversationAction(user.uid, 'posiAgent');
             newConversation = {
                 ...createdConvo,
@@ -69,14 +68,16 @@ export default function AppShell() {
         }
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
-      } catch (error) {
-          console.error('Failed to create new conversation:', error);
-          toast({
-              variant: 'destructive',
-              title: 'Error',
-              description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
-          });
-      }
+    } catch (error) {
+        console.error('Failed to create new conversation:', error);
+        toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
+        });
+    } finally {
+        setIsUiLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -93,10 +94,9 @@ export default function AppShell() {
     setIsUiLoading(true);
 
     if (FORCE_TEST_MODE) {
-        console.log("[AppShell Test Mode] Skipping history fetch, starting fresh.");
+        console.log("[AppShell Test Mode] Starting in test mode. No history fetched.");
         setConversations([]);
         setActiveConversationId(null);
-        handleCreateNewConversation();
         setIsUiLoading(false);
         return;
     }
@@ -113,8 +113,8 @@ export default function AppShell() {
         if (historyWithDates.length > 0) {
           setActiveConversationId(historyWithDates[0].id);
         } else {
-          // If no history, create the first conversation automatically
-          handleCreateNewConversation();
+          // No history, user will be prompted to create a new conversation
+          setActiveConversationId(null);
         }
       })
       .catch(err => {
@@ -261,7 +261,7 @@ export default function AppShell() {
             />
           )}
       </Sidebar>
-      <SidebarInset className="flex flex-col h-screen p-0 bg-background shadow-none border-0">
+      <SidebarInset className="flex flex-col h-screen p-0 bg-card shadow-none border-0">
         {isUiLoading && !activeConversation ? (
            <div className="flex items-center justify-center h-full">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
