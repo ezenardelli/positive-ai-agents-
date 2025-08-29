@@ -143,7 +143,7 @@ export async function updateConversationContextAction(
       console.log(`[ACTION - updateConversationContextAction] Test mode: Context change for ${conversationId} handled on client.`);
       return;
     }
-    await updateConversationInDb(conversationId, { agentId, clientContext });
+    await updateConversationInDb(conversationId, { agentId, clientContext, messages: [] });
 }
 
 

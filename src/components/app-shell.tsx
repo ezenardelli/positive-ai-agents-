@@ -29,7 +29,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = true;
+const FORCE_TEST_MODE = false;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
@@ -40,6 +40,8 @@ export default function AppShell() {
   const [isSendingMessage, startSendMessageTransition] = useTransition();
 
   const { toast } = useToast();
+  
+  const isTestMode = FORCE_TEST_MODE || !user || user.uid.startsWith('mock-');
 
   const handleCreateNewConversation = async (): Promise<Conversation | undefined> => {
     if (!user) return;
@@ -47,7 +49,7 @@ export default function AppShell() {
     setIsUiLoading(true);
     try {
         let newConversation: Conversation;
-        if (FORCE_TEST_MODE) {
+        if (isTestMode) {
             console.log("[AppShell Test Mode] Creating new MOCK conversation (Client-side)");
             newConversation = {
                 id: `mock_convo_${Date.now()}`,
@@ -96,7 +98,7 @@ export default function AppShell() {
   
     setIsUiLoading(true);
 
-    if (FORCE_TEST_MODE) {
+    if (isTestMode) {
         console.log("[AppShell Test Mode] Starting in test mode. Auto-creating first conversation.");
         if (conversations.length === 0) {
             handleCreateNewConversation();
@@ -126,14 +128,14 @@ export default function AppShell() {
         toast({
           variant: 'destructive',
           title: 'Error',
-          description: 'No se pudo cargar el historial de conversaciones.',
+          description: `No se pudo cargar el historial de conversaciones. ${err.message}`,
         });
       })
       .finally(() => {
           setIsUiLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading]);
+  }, [user, authLoading, isTestMode]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
@@ -143,7 +145,6 @@ export default function AppShell() {
 
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
     
-    // Optimistic UI update for the user's message
     const newConversations = conversations.map(c =>
         c.id === forConversation.id
             ? { ...c, messages: [...c.messages, optimisticUserMessage] }
@@ -155,18 +156,17 @@ export default function AppShell() {
 
     startSendMessageTransition(async () => {
       try {
-        if (!FORCE_TEST_MODE) {
-            const modelResponse = await sendMessageAction(
-              forConversation.id,
-              forConversation.agentId,
-              message,
-              forConversation.clientContext,
-              false,
-              currentMessages
-            );
-
-            // Once we have the real response, we get the updated conversation from the DB
-            // to ensure our local state is perfectly in sync.
+        await sendMessageAction(
+          forConversation.id,
+          forConversation.agentId,
+          message,
+          forConversation.clientContext,
+          isTestMode,
+          currentMessages
+        );
+        
+        if (!isTestMode) {
+            // Re-fetch history to ensure perfect sync
             const updatedConversations = await getHistoryAction(user.uid); 
             const updatedConversationsWithDates = updatedConversations.map(c => ({
                 ...c,
@@ -174,23 +174,20 @@ export default function AppShell() {
                 messages: c.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) }))
             }));
             setConversations(updatedConversationsWithDates);
-
         } else { 
-             const modelResponse = await sendMessageAction(
-                forConversation.id,
-                forConversation.agentId,
-                message,
-                forConversation.clientContext,
-                true,
-                currentMessages
-            );
-            
-            // Final state update with model's response for test mode
+            // In test mode, we just simulate the response.
+            const modelResponse: Message = {
+                id: `msg-model-${Date.now()}`,
+                role: 'model',
+                content: 'Esta es una respuesta simulada en modo de prueba.',
+                createdAt: new Date(),
+            };
+
             setConversations(prev =>
                 prev.map(c => {
                     if (c.id === forConversation.id) {
-                         const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
-                         const finalModelMessage = { ...modelResponse, createdAt: new Date(modelResponse.createdAt) };
+                        const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
+                        const finalModelMessage = { ...modelResponse };
                         const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, finalModelMessage];
                         
                         let newTitle = c.title;
@@ -227,7 +224,7 @@ export default function AppShell() {
         c.id === conversationId ? { ...c, agentId: newAgentId, clientContext: newClientContext || undefined, messages: [] } : c
       )
     );
-    if (!FORCE_TEST_MODE) {
+    if (!isTestMode) {
         updateConversationContextAction(conversationId, newAgentId, newClientContext, false)
         .catch(err => {
             console.error("Failed to update context in DB:", err);
@@ -248,7 +245,7 @@ export default function AppShell() {
         // Optimistic UI update
         setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: finalTitle } : c));
 
-        if (!FORCE_TEST_MODE) {
+        if (!isTestMode) {
             const { success, error } = await updateConversationTitleAction(conversationId, finalTitle);
             if (!success) {
                 toast({
@@ -277,7 +274,7 @@ export default function AppShell() {
              }
         }
 
-        if (!FORCE_TEST_MODE) {
+        if (!isTestMode) {
             const { success, error } = await deleteConversationAction(conversationId);
             if (!success) {
                 toast({

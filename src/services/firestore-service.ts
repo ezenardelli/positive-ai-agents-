@@ -17,7 +17,8 @@ import {
   deleteDoc,
   Timestamp,
   arrayUnion,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { GenerateMeetingMinutesOutput } from '@/ai/flows/generate-meeting-minutes';
@@ -183,10 +184,22 @@ export async function updateConversationTitle(conversationId: string, title: str
  */
 export async function updateConversation(conversationId: string, data: Partial<Conversation>): Promise<void> {
     const convoRef = doc(db, 'conversations', conversationId);
-    await updateDoc(convoRef, {
+    const batch = writeBatch(db);
+    
+    // Update the agentId and clientContext
+    batch.update(convoRef, {
         agentId: data.agentId,
         clientContext: data.clientContext,
     });
+
+    // Clear the messages array
+    if (data.messages !== undefined) {
+        batch.update(convoRef, {
+            messages: []
+        });
+    }
+
+    await batch.commit();
 }
 
 /**
