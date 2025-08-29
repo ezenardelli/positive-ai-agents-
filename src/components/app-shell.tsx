@@ -167,9 +167,9 @@ export default function AppShell() {
                       const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
                       finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, {...modelResponse, createdAt: new Date(modelResponse.createdAt)});
                       
-                      // Also, update the title if it's the first exchange
+                      // Also, update the title if it's the first exchange and title is default
                       let newTitle = c.title;
-                      if (finalMessages.length === 2 && !c.title) {
+                      if (finalMessages.length === 2 && (c.title === 'Nueva Conversación' || !c.title)) {
                         const potentialTitle = message.substring(0, 30) + "...";
                         newTitle = potentialTitle
                       }
@@ -218,11 +218,12 @@ export default function AppShell() {
   const handleEditTitle = async (conversationId: string, currentTitle: string | null) => {
     const newTitle = prompt("Ingresa el nuevo nombre para la conversación:", currentTitle ?? "");
     if (newTitle && newTitle.trim() !== (currentTitle ?? "")) {
+        const finalTitle = newTitle.trim();
         // Optimistic UI update
-        setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: newTitle } : c));
+        setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: finalTitle } : c));
 
         if (!FORCE_TEST_MODE) {
-            const { success, error } = await updateConversationTitleAction(conversationId, newTitle.trim());
+            const { success, error } = await updateConversationTitleAction(conversationId, finalTitle);
             if (!success) {
                 toast({
                     variant: 'destructive',
@@ -238,12 +239,16 @@ export default function AppShell() {
 
   const handleDeleteConversation = async (conversationId: string) => {
     if (confirm("¿Estás seguro de que quieres eliminar esta conversación? Esta acción no se puede deshacer.")) {
+        const originalConversations = conversations;
         // Optimistic UI update
-        setConversations(prev => prev.filter(c => c.id !== conversationId));
-        // If we are deleting the active conversation, select a new one
+        const newConversations = conversations.filter(c => c.id !== conversationId);
+        setConversations(newConversations);
+
         if (activeConversationId === conversationId) {
-             const remainingConversations = conversations.filter(c => c.id !== conversationId);
-             setActiveConversationId(remainingConversations.length > 0 ? remainingConversations[0].id : null);
+             setActiveConversationId(newConversations.length > 0 ? newConversations[0].id : null);
+             if (newConversations.length === 0) {
+                handleCreateNewConversation();
+             }
         }
 
         if (!FORCE_TEST_MODE) {
@@ -254,9 +259,8 @@ export default function AppShell() {
                     title: 'Error',
                     description: `No se pudo eliminar la conversación. ${error}`,
                 });
-                // Rollback would be complex here, would need to re-fetch or re-insert.
-                // For simplicity, we can just reload the history.
-                if(user) getHistoryAction(user.uid).then(setConversations);
+                // Rollback on failure
+                setConversations(originalConversations);
             }
         }
     }

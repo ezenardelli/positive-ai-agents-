@@ -26,8 +26,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { AGENTS, CLIENTS } from '@/lib/data';
@@ -113,7 +111,7 @@ export default function SidebarContentComponent({
               <History className="size-4" />
               Historial
             </SidebarGroupLabel>
-            {isLoading ? (
+            {isLoading && conversations.length === 0 ? (
               <div className="flex flex-col gap-2">
                 <SidebarMenuSkeleton showIcon />
                 <SidebarMenuSkeleton showIcon />
