@@ -14,25 +14,45 @@ import {z} from 'genkit';
 import {saveMinute} from '@/services/firestore-service';
 
 const GenerateMeetingMinutesInputSchema = z.object({
-  transcript:
-    z.string()
-      .describe('La transcripción de la reunión.'),
-  pastParticipants: z.array(z.string()).describe('Participantes anteriores en reuniones similares.'),
+  transcript: z.string().describe('La transcripción de la reunión.'),
+  pastParticipants: z
+    .array(z.string())
+    .describe('Participantes anteriores en reuniones similares.'),
   clientId: z.string().describe('The ID of the client.'),
-  sourceDocumentUrl: z.string().optional().describe('URL of the source document (if available).'),
-  isTestMode: z.boolean().optional().describe('Flag to indicate if running in test mode to avoid DB operations.'),
+  sourceDocumentUrl: z
+    .string()
+    .optional()
+    .describe('URL of the source document (if available).'),
+  isTestMode: z
+    .boolean()
+    .optional()
+    .describe(
+      'Flag to indicate if running in test mode to avoid DB operations.'
+    ),
 });
-export type GenerateMeetingMinutesInput = z.infer<typeof GenerateMeetingMinutesInputSchema>;
+export type GenerateMeetingMinutesInput = z.infer<
+  typeof GenerateMeetingMinutesInputSchema
+>;
 
 const GenerateMeetingMinutesOutputSchema = z.object({
   summary: z.string().describe('Un resumen ejecutivo de la reunión.'),
-  actionItems: z.array(z.string()).describe('Una lista de puntos de acción asignados a personas específicas.'),
-  topicsDiscussed: z.array(z.string()).describe('Una lista de los temas principales discutidos durante la reunión.'),
-  fullGeneratedText: z.string().describe('The full generated text of the meeting minutes.'),
+  actionItems: z
+    .array(z.string())
+    .describe('Una lista de puntos de acción asignados a personas específicas.'),
+  topicsDiscussed: z
+    .array(z.string())
+    .describe('Una lista de los temas principales discutidos durante la reunión.'),
+  fullGeneratedText: z
+    .string()
+    .describe('The full generated text of the meeting minutes.'),
 });
-export type GenerateMeetingMinutesOutput = z.infer<typeof GenerateMeetingMinutesOutputSchema>;
+export type GenerateMeetingMinutesOutput = z.infer<
+  typeof GenerateMeetingMinutesOutputSchema
+>;
 
-export async function generateMeetingMinutes(input: GenerateMeetingMinutesInput): Promise<GenerateMeetingMinutesOutput> {
+export async function generateMeetingMinutes(
+  input: GenerateMeetingMinutesInput
+): Promise<GenerateMeetingMinutesOutput> {
   return generateMeetingMinutesFlow(input);
 }
 
@@ -41,6 +61,9 @@ const generateMeetingMinutesPrompt = ai.definePrompt({
   input: {schema: GenerateMeetingMinutesInputSchema},
   output: {schema: GenerateMeetingMinutesOutputSchema},
   prompt: `Eres un Project Manager experto en Positive IT. Tu tarea es crear una minuta de reunión profesional en español.
+
+Analiza la siguiente transcripción. Si la transcripción es muy corta o no parece una reunión (p. ej. un simple saludo), responde amigablemente indicando que necesitas una transcripción más completa para poder generar una minuta útil.
+
 Contexto Adicional: En reuniones pasadas de este cliente participaron {{{pastParticipants}}}. Si surge un tema similar a proyectos anteriores, sugiere contactar a la persona relevante.
 
 Transcripción de la reunión:
@@ -48,7 +71,7 @@ Transcripción de la reunión:
 {{{transcript}}}
 ---
 
-Por favor, genera la minuta con el siguiente formato:
+Si la transcripción es válida, genera la minuta con el siguiente formato:
 1. Resumen Ejecutivo
 2. Puntos de Acción (Asignados a personas específicas)
 3. Temas Discutidos
@@ -68,15 +91,15 @@ const generateMeetingMinutesFlow = ai.defineFlow(
 
     // Save the generated minute to Firestore ONLY if not in test mode
     if (!input.isTestMode) {
-      await saveMinute(
-        input.clientId,
-        input.sourceDocumentUrl,
-        output!
+      console.log(
+        `[generateMeetingMinutesFlow - PROD MODE] Saving minute for client: ${input.clientId}`
       );
+      await saveMinute(input.clientId, input.sourceDocumentUrl, output!);
     } else {
-        console.log('[generateMeetingMinutesFlow - TEST MODE] Skipping Firestore save.');
+      console.log(
+        '[generateMeetingMinutesFlow - TEST MODE] Skipping Firestore save.'
+      );
     }
-
 
     return output!;
   }

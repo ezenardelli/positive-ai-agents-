@@ -8,9 +8,14 @@ import { useRef, useState, type FormEvent } from 'react';
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   isLoading: boolean;
+  placeholder?: string;
 }
 
-export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) {
+export default function ChatInput({ 
+  onSendMessage, 
+  isLoading, 
+  placeholder = "Escribe tu mensaje..." 
+}: ChatInputProps) {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -47,9 +52,9 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
         value={message}
         onChange={handleTextareaChange}
         onKeyDown={handleKeyDown}
-        placeholder="Escribe tu mensaje o pega una transcripción..."
-        className="flex-1 resize-none max-h-48"
-        rows={1}
+        placeholder={placeholder}
+        className="flex-1 resize-none max-h-64 min-h-[80px]"
+        rows={3}
         disabled={isLoading}
       />
       <Button type="submit" size="icon" disabled={isLoading || !message.trim()}>
