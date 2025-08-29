@@ -53,6 +53,7 @@ export async function getPastParticipants(clientId: string): Promise<string[]> {
 
 /**
  * Saves a generated meeting minute to the Firestore database.
+ * This will implicitly create the 'minutes' collection if it doesn't exist.
  */
 export async function saveMinute(
   clientId: string,
@@ -91,10 +92,20 @@ const conversationFromDoc = (docSnapshot: any): Conversation => {
  * Fetches all conversations for a given user.
  */
 export async function getConversations(userId: string): Promise<Conversation[]> {
-    const convosRef = collection(db, 'conversations');
-    const q = query(convosRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(conversationFromDoc);
+    try {
+        const convosRef = collection(db, 'conversations');
+        const q = query(convosRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(conversationFromDoc);
+    } catch (error) {
+        console.error("Error fetching conversations:", error);
+        // If the collection doesn't exist, getDocs() throws. We'll return an empty array.
+        if (error instanceof Error && (error.message.includes("does not exist") || error.message.includes("needs an index"))) {
+            console.warn("Conversations collection or index may not exist yet. This is normal on first run.");
+            return [];
+        }
+        throw error;
+    }
 }
 
 /**
@@ -111,20 +122,27 @@ export async function getConversation(conversationId: string): Promise<Conversat
 
 /**
  * Creates a new conversation in Firestore.
+ * This will implicitly create the 'conversations' collection if it doesn't exist.
  */
 export async function createConversation(userId: string, agentId: AgentId, clientContext?: string): Promise<Conversation> {
     const newConvoData = {
         userId,
         agentId,
+        // Ensure clientContext is null, not undefined, for Firestore.
         clientContext: clientContext || null,
         title: 'Nueva Conversación',
         messages: [],
         createdAt: Timestamp.now(),
     };
-    const docRef = await addDoc(collection(db, 'conversations'), newConvoData);
-    // Fetch the document we just created to return a consistent Conversation object
-    const docSnap = await getDoc(docRef);
-    return conversationFromDoc(docSnap);
+    try {
+        const docRef = await addDoc(collection(db, 'conversations'), newConvoData);
+        // Fetch the document we just created to return a consistent Conversation object
+        const docSnap = await getDoc(docRef);
+        return conversationFromDoc(docSnap);
+    } catch (error) {
+        console.error("Error creating conversation in Firestore:", error);
+        throw new Error(`Failed to create conversation: ${error}`);
+    }
 }
 
 /**

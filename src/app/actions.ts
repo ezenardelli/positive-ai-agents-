@@ -76,7 +76,9 @@ export async function sendMessageAction(
 
     if (agentId === 'minutaMaker') {
       const clientId = clientContext || 'mock-client';
-      const pastParticipants = (await suggestParticipants({ clientId })).suggestedParticipants;
+      const pastParticipants = isTestMode 
+        ? ['test1@example.com', 'test2@example.com'] 
+        : (await suggestParticipants({ clientId })).suggestedParticipants;
       
       const result = await generateMeetingMinutes({
         transcript: messageContent,
@@ -154,8 +156,8 @@ export async function createConversationAction(
       createdAt: new Date(),
     };
     mockConversations.unshift(newConversation); // Add to the beginning
-    // Return a deep copy to prevent mutation issues.
-    return JSON.parse(JSON.stringify(newConversation));
+    // Return a plain object, no need for JSON parsing here.
+    return newConversation;
   }
   // This now calls the dedicated Firestore service function
   return await createConversationInDb(userId, agentId, clientContext);

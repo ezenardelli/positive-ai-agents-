@@ -47,10 +47,16 @@ export default function AppShell() {
     startSendMessageTransition(async () => {
       try {
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-        // When creating a conversation, the dates are already Date objects.
-        // We only need to convert them when fetching from the server.
-        setConversations(prev => [newConversation, ...prev]);
-        setActiveConversationId(newConversation.id);
+        
+        // When creating a conversation, the dates might be strings from server actions in test mode
+        const newConversationWithDate = {
+            ...newConversation,
+            createdAt: new Date(newConversation.createdAt),
+            messages: newConversation.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        };
+
+        setConversations(prev => [newConversationWithDate, ...prev]);
+        setActiveConversationId(newConversationWithDate.id);
       } catch (error) {
         console.error('Failed to create new conversation:', error);
         toast({
@@ -90,7 +96,6 @@ export default function AppShell() {
            setIsUiLoading(false);
         } else {
           // No history for this user/agent, create a new conversation.
-          // The creation function will handle setting the loading state.
           const defaultClient = activeAgentId === 'minutaMaker' ? CLIENTS[0].id : undefined;
           handleCreateNewConversation(activeAgentId, defaultClient);
         }
@@ -190,18 +195,20 @@ export default function AppShell() {
   return (
     <SidebarProvider>
       <Sidebar>
-          <SidebarContentComponent
-            user={user}
-            agents={agents}
-            conversations={conversations.filter(c => c.agentId === activeAgentId)}
-            activeAgentId={activeAgentId}
-            activeConversationId={activeConversationId}
-            onSelectAgent={handleSelectAgent}
-            onSelectConversation={setActiveConversationId}
-            onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
-            onLogout={logout}
-            isLoading={isUiLoading}
-          />
+          {user && (
+            <SidebarContentComponent
+              user={user}
+              agents={agents}
+              conversations={conversations.filter(c => c.agentId === activeAgentId)}
+              activeAgentId={activeAgentId}
+              activeConversationId={activeConversationId}
+              onSelectAgent={handleSelectAgent}
+              onSelectConversation={setActiveConversationId}
+              onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
+              onLogout={logout}
+              isLoading={isUiLoading}
+            />
+          )}
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
         {isUiLoading && !activeConversation ? (
