@@ -35,7 +35,7 @@ export default function ChatInterface({
   const getPlaceholderText = () => {
     switch (agent.id) {
       case 'minutaMaker':
-        return 'Pega aquí la transcripción completa de la reunión...';
+        return 'Pega aquí la transcripción completa de la reunión o adjunta un archivo .docx...';
       case 'posiAgent':
         return '¿En qué puedo ayudarte hoy?';
       default:

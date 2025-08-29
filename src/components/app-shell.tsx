@@ -93,8 +93,8 @@ export default function AppShell() {
         if (historyWithDates.length > 0) {
           setActiveConversationId(historyWithDates[0].id);
         } else {
-          const defaultClient = activeAgentId === 'minutaMaker' ? CLIENTS[0].id : undefined;
-          handleCreateNewConversation(activeAgentId, defaultClient);
+          // If no history, don't auto-create. Let the user click the button.
+          setActiveConversationId(null);
         }
       })
       .catch(err => {
@@ -210,13 +210,13 @@ export default function AppShell() {
           )}
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
-        {isUiLoading && !activeConversation ? (
+        {isUiLoading && !activeConversation && conversations.length === 0 ? (
            <div className="flex items-center justify-center h-full bg-card rounded-lg border">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
            </div>
         ) : (
             <ChatInterface
-              key={activeConversationId} // Re-mount when conversation changes
+              key={activeConversationId || 'new'} // Re-mount when conversation changes or is new
               agent={activeAgent}
               conversation={activeConversation}
               onSendMessage={handleSendMessage}

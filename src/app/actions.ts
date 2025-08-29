@@ -63,7 +63,7 @@ export async function sendMessageAction(
         pastParticipants: pastParticipants
       });
       
-      responseContent = `### Resumen Ejecutivo\n${result.summary}\n\n### Puntos de Acción\n${result.actionItems.map(item => `* ${item}`).join('\n')}\n\n### Temas Discutidos\n${result.topicsDiscussed.map(item => `* ${item}`).join('\n')}`;
+      responseContent = result.fullGeneratedText;
 
       // Save the generated minute along with the transcript used
       await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
