@@ -17,6 +17,7 @@ import {
   createConversation as createConversationInDb,
   updateConversation as updateConversationInDb,
   updateConversationTitle as updateConversationTitleInDb,
+  deleteConversation as deleteConversationInDb,
   saveMinute
 } from '@/services/firestore-service';
 import { processDocx } from '@/ai/flows/process-docx-flow';
@@ -151,6 +152,29 @@ export async function processFileAction(fileDataUri: string): Promise<{ success:
         return { success: true, text: result.text };
     } catch (error) {
         console.error("Error processing DOCX file:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        return { success: false, error: errorMessage };
+    }
+}
+
+
+export async function updateConversationTitleAction(conversationId: string, newTitle: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        await updateConversationTitleInDb(conversationId, newTitle);
+        return { success: true };
+    } catch (error) {
+        console.error("Error updating conversation title:", error);
+        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+        return { success: false, error: errorMessage };
+    }
+}
+
+export async function deleteConversationAction(conversationId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+        await deleteConversationInDb(conversationId);
+        return { success: true };
+    } catch (error) {
+        console.error("Error deleting conversation:", error);
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
         return { success: false, error: errorMessage };
     }

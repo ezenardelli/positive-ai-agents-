@@ -11,9 +11,11 @@ import { useEffect, useState, useTransition } from 'react';
 import type { AgentId, Conversation, Message } from '@/lib/types';
 import {
   createConversationAction,
+  deleteConversationAction,
   getHistoryAction,
   sendMessageAction,
-  updateConversationContextAction
+  updateConversationContextAction,
+  updateConversationTitleAction
 } from '@/app/actions';
 import ChatInterface from './chat/chat-interface';
 import { useToast } from '@/hooks/use-toast';
@@ -213,6 +215,54 @@ export default function AppShell() {
       });
   };
   
+  const handleEditTitle = async (conversationId: string, currentTitle: string | null) => {
+    const newTitle = prompt("Ingresa el nuevo nombre para la conversación:", currentTitle ?? "");
+    if (newTitle && newTitle.trim() !== (currentTitle ?? "")) {
+        // Optimistic UI update
+        setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: newTitle } : c));
+
+        if (!FORCE_TEST_MODE) {
+            const { success, error } = await updateConversationTitleAction(conversationId, newTitle.trim());
+            if (!success) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: `No se pudo actualizar el nombre. ${error}`,
+                });
+                // Rollback
+                setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: currentTitle } : c));
+            }
+        }
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId: string) => {
+    if (confirm("¿Estás seguro de que quieres eliminar esta conversación? Esta acción no se puede deshacer.")) {
+        // Optimistic UI update
+        setConversations(prev => prev.filter(c => c.id !== conversationId));
+        // If we are deleting the active conversation, select a new one
+        if (activeConversationId === conversationId) {
+             const remainingConversations = conversations.filter(c => c.id !== conversationId);
+             setActiveConversationId(remainingConversations.length > 0 ? remainingConversations[0].id : null);
+        }
+
+        if (!FORCE_TEST_MODE) {
+            const { success, error } = await deleteConversationAction(conversationId);
+            if (!success) {
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: `No se pudo eliminar la conversación. ${error}`,
+                });
+                // Rollback would be complex here, would need to re-fetch or re-insert.
+                // For simplicity, we can just reload the history.
+                if(user) getHistoryAction(user.uid).then(setConversations);
+            }
+        }
+    }
+  };
+
+
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
@@ -239,6 +289,8 @@ export default function AppShell() {
               onNewConversation={handleCreateNewConversation}
               onLogout={logout}
               isLoading={isUiLoading}
+              onEditTitle={handleEditTitle}
+              onDelete={handleDeleteConversation}
             />
           )}
       </Sidebar>

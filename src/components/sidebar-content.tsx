@@ -11,13 +11,14 @@ import {
   SidebarSeparator,
   SidebarFooter,
   SidebarMenuSkeleton,
+  SidebarMenuAction,
 } from '@/components/ui/sidebar';
 import { Logo } from './icons';
-import type { AgentId, Conversation } from '@/lib/types';
+import type { Conversation } from '@/lib/types';
 import type { User } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
-import { History, LogOut, MessageSquare, Plus, Bot, Briefcase } from 'lucide-react';
+import { History, LogOut, MessageSquare, Plus, Bot, Briefcase, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { format, isToday, isYesterday } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -29,9 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { AGENTS } from '@/lib/data';
-import { cn } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
+import { AGENTS, CLIENTS } from '@/lib/data';
 
 
 interface SidebarContentComponentProps {
@@ -42,6 +41,8 @@ interface SidebarContentComponentProps {
   onNewConversation: () => void;
   onLogout: () => void;
   isLoading: boolean;
+  onEditTitle: (id: string, currentTitle: string | null) => void;
+  onDelete: (id: string) => void;
 }
 
 export default function SidebarContentComponent({
@@ -52,6 +53,8 @@ export default function SidebarContentComponent({
   onNewConversation,
   onLogout,
   isLoading,
+  onEditTitle,
+  onDelete,
 }: SidebarContentComponentProps) {
   
   const groupConversationsByDate = (convos: Conversation[]) => {
@@ -76,7 +79,8 @@ export default function SidebarContentComponent({
 
   const groupedConversations = groupConversationsByDate(conversations);
 
-  const getAgentById = (id: AgentId) => AGENTS.find(a => a.id === id);
+  const getAgentById = (id: Conversation['agentId']) => AGENTS.find(a => a.id === id);
+  const getClientById = (id: Conversation['clientContext']) => CLIENTS.find(c => c.id === id);
 
   return (
     <>
@@ -88,19 +92,21 @@ export default function SidebarContentComponent({
             <span className="text-xs text-sidebar-foreground/70">Agent Hub</span>
           </div>
         </div>
+      </SidebarHeader>
+
+      <div className="p-3">
         <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            variant="outline"
+            className="w-full justify-start"
             onClick={onNewConversation}
             disabled={isLoading}
             >
-            <Plus className="size-4" />
-            <span className="sr-only">Nueva conversación</span>
+            <Plus className="size-4 mr-2" />
+            Nueva conversación
         </Button>
-      </SidebarHeader>
+      </div>
 
-      <SidebarContent>
+      <SidebarContent className="pt-0">
         <ScrollArea className="h-full px-3">
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center gap-2">
@@ -120,31 +126,47 @@ export default function SidebarContentComponent({
                   <p className="px-2 text-xs text-sidebar-foreground/60 mb-1">{date}</p>
                   {convos.map(convo => {
                     const agent = getAgentById(convo.agentId);
+                    const client = getClientById(convo.clientContext);
                     return (
                         <SidebarMenuItem key={convo.id}>
                             <SidebarMenuButton
                                 onClick={() => onSelectConversation(convo.id)}
                                 isActive={activeConversationId === convo.id}
-                                className="h-auto py-2 flex-col items-start"
+                                className="h-auto py-2 flex-col items-start pr-12"
                             >
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                     <MessageSquare className="size-4" />
                                     <span className="truncate flex-1">{convo.title || "Nueva Conversación"}</span>
                                 </div>
-                                {agent && (
-                                     <div className="flex items-center gap-2 pl-6 text-xs text-sidebar-foreground/70">
-                                        <Bot className="size-3" />
-                                        <span>{agent.name}</span>
-                                        {convo.clientContext && (
-                                            <>
-                                                <span className="mx-1">|</span>
-                                                <Briefcase className="size-3" />
-                                                <span>{convo.clientContext}</span>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
+                                <div className="flex items-center gap-2 pl-6 text-xs text-sidebar-foreground/70 mt-1">
+                                    {agent && <><Bot className="size-3" /><span>{agent.name}</span></>}
+                                    {client && (
+                                        <>
+                                            <span className="mx-1">|</span>
+                                            <Briefcase className="size-3" />
+                                            <span>{client.name}</span>
+                                        </>
+                                    )}
+                                </div>
                             </SidebarMenuButton>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                     <SidebarMenuAction showOnHover>
+                                        <MoreHorizontal className="size-4" />
+                                        <span className="sr-only">Acciones</span>
+                                    </SidebarMenuAction>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-48">
+                                    <DropdownMenuItem onClick={() => onEditTitle(convo.id, convo.title)}>
+                                        <Pencil className="mr-2 h-4 w-4" />
+                                        <span>Editar nombre</span>
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => onDelete(convo.id)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        <span>Eliminar</span>
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </SidebarMenuItem>
                     );
                   })}

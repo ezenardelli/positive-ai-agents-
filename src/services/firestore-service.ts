@@ -14,6 +14,7 @@ import {
   doc,
   getDoc,
   updateDoc,
+  deleteDoc,
   Timestamp,
   arrayUnion,
   serverTimestamp
@@ -175,4 +176,12 @@ export async function updateConversation(conversationId: string, data: Partial<C
         agentId: data.agentId,
         clientContext: data.clientContext,
     });
+}
+
+/**
+ * Deletes a conversation from Firestore.
+ */
+export async function deleteConversation(conversationId: string): Promise<void> {
+    const convoRef = doc(db, 'conversations', conversationId);
+    await deleteDoc(convoRef);
 }
