@@ -9,7 +9,7 @@ import {
 import SidebarContentComponent from '@/components/sidebar-content';
 import { useEffect, useState, useTransition } from 'react';
 import type { Agent, AgentId, Conversation, Message } from '@/lib/types';
-import { AGENTS } from '@/lib/data';
+import { AGENTS, CLIENTS } from '@/lib/data';
 import {
   createConversationAction,
   getHistoryAction,
@@ -22,7 +22,7 @@ import { Loader2 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const isTestMode = true; // Forzamos el modo de prueba
 
 
 export default function AppShell() {
@@ -39,8 +39,6 @@ export default function AppShell() {
   const { toast } = useToast();
 
   const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
-    if (!user) return;
-    
     startTransition(async () => {
       setIsLoading(true);
       try {
@@ -49,9 +47,26 @@ export default function AppShell() {
 
         if (activeAgent?.needsClientContext) {
            const existingContext = conversations.find(c => c.agentId === agentIdToCreate)?.clientContext;
-           clientContext = existingContext || 'cliente_A'; 
+           clientContext = existingContext || CLIENTS[0].id;
+        }
+
+        if (isTestMode) {
+          const newConversation: Conversation = {
+            id: `mock-convo-${Date.now()}`,
+            userId: 'mock-user',
+            agentId: agentIdToCreate,
+            clientContext: clientContext,
+            title: 'Nueva Conversación de Prueba',
+            messages: [],
+            createdAt: new Date(),
+          };
+          setConversations(prev => [newConversation, ...prev]);
+          setActiveConversationId(newConversation.id);
+          setIsLoading(false);
+          return;
         }
         
+        if (!user) throw new Error("User not authenticated");
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
@@ -71,11 +86,12 @@ export default function AppShell() {
 
    useEffect(() => {
     if (isTestMode) {
+      if (!conversations.find(c => c.agentId === activeAgentId)) {
+        handleCreateNewConversation(activeAgentId);
+      } else {
         setIsLoading(false);
-        if (!conversations.length) {
-            handleCreateNewConversation(activeAgentId);
-        }
-        return;
+      }
+      return;
     }
     
     if (authLoading) return;
@@ -87,35 +103,42 @@ export default function AppShell() {
 
     setIsLoading(true);
     getHistoryAction(user.uid).then(history => {
-    setConversations(history);
-    const agentConversations = history.filter(c => c.agentId === activeAgentId);
-    if (agentConversations.length > 0) {
-        setActiveConversationId(agentConversations[0].id);
-    } else {
-        // Automatically create a new conversation if none exist for the selected agent
-        handleCreateNewConversation(activeAgentId);
-    }
+      setConversations(history);
+      const agentConversations = history.filter(c => c.agentId === activeAgentId);
+      if (agentConversations.length > 0) {
+          setActiveConversationId(agentConversations[0].id);
+      } else {
+          handleCreateNewConversation(activeAgentId);
+      }
     }).catch(err => {
-    console.error("Failed to load history:", err);
-    toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'No se pudo cargar el historial de conversaciones.',
-    });
+      console.error("Failed to load history:", err);
+      toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo cargar el historial de conversaciones.',
+      });
     }).finally(() => {
-    setIsLoading(false);
+      setIsLoading(false);
     });
   }, [user, activeAgentId, authLoading]);
 
 
   const activeAgent = agents.find(a => a.id === activeAgentId)!;
-  const activeConversation = conversations.find(c => c.id === activeConversationId);
+  let activeConversation = conversations.find(c => c.id === activeConversationId);
+  if (isTestMode && !activeConversation && conversations.length > 0) {
+    activeConversation = conversations.find(c => c.agentId === activeAgentId);
+    if(activeConversation) setActiveConversationId(activeConversation.id);
+  }
+
 
   const handleSelectAgent = (agentId: AgentId) => {
     if (agentId !== activeAgentId) {
       setActiveAgentId(agentId);
       setActiveConversationId(null); 
       setIsLoading(true);
+      if (!conversations.find(c => c.agentId === agentId)) {
+        handleCreateNewConversation(agentId);
+      }
     }
   };
 
@@ -124,7 +147,7 @@ export default function AppShell() {
   };
 
   const handleSendMessage = (message: string, clientContext?: string) => {
-    if (!activeConversationId || !user) return;
+    if (!activeConversationId) return;
 
     const optimisticMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     
@@ -148,17 +171,21 @@ export default function AppShell() {
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-               const newMessages = c.messages.filter(m => m !== optimisticMessage);
-               newMessages.push(optimisticMessage, responseMessage);
-                if (isTestMode) {
-                     return { ...c, messages: newMessages, title: 'Conversación de prueba' };
-                }
-                 // Fetch latest history to get the new title
+              const newMessages = c.messages.filter(m => m !== optimisticMessage);
+              newMessages.push(optimisticMessage, responseMessage);
+              
+              if (isTestMode) {
+                return { ...c, messages: newMessages, title: 'Conversación de prueba' };
+              }
+              
+              // This is for production, to get the new title if generated
+              if (user) {
                 getHistoryAction(user.uid).then(updatedHistory => {
                     setConversations(updatedHistory);
                     setActiveConversationId(activeConversationId);
                 });
-               return { ...c, messages: newMessages };
+              }
+              return { ...c, messages: newMessages };
             }
             return c;
           })
@@ -179,7 +206,7 @@ export default function AppShell() {
     });
   };
   
-  if (authLoading && !isTestMode) {
+  if ((authLoading || !user) && !isTestMode) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -190,18 +217,20 @@ export default function AppShell() {
   return (
     <SidebarProvider>
       <Sidebar>
-        <SidebarContentComponent
-          user={user as User}
-          agents={agents}
-          conversations={conversations}
-          activeAgentId={activeAgentId}
-          activeConversationId={activeConversationId}
-          onSelectAgent={handleSelectAgent}
-          onSelectConversation={setActiveConversationId}
-          onNewConversation={() => handleCreateNewConversation(activeAgentId)}
-          onLogout={handleLogout}
-          isLoading={isLoading}
-        />
+        {user && (
+          <SidebarContentComponent
+            user={user}
+            agents={agents}
+            conversations={conversations}
+            activeAgentId={activeAgentId}
+            activeConversationId={activeConversationId}
+            onSelectAgent={handleSelectAgent}
+            onSelectConversation={setActiveConversationId}
+            onNewConversation={() => handleCreateNewConversation(activeAgentId)}
+            onLogout={handleLogout}
+            isLoading={isLoading}
+          />
+        )}
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
         <ChatInterface

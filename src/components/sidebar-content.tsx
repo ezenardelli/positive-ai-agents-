@@ -80,6 +80,10 @@ export default function SidebarContentComponent({
     conversations.filter(c => c.agentId === activeAgentId)
   );
 
+  if (!user) {
+    return null; // or a loading skeleton
+  }
+
   return (
     <>
       <SidebarHeader>
