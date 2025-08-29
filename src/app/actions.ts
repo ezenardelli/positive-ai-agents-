@@ -18,7 +18,6 @@ import {
 
 const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
-
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
   if (isTestMode) return [];
   return await getConversations(userId);
@@ -49,11 +48,13 @@ export async function sendMessageAction(
 
   try {
     if (agentId === 'minutaMaker') {
+      // In test mode, we might not have a real client ID or past participants.
       const clientId = clientContext || 'mock-client';
-      const { suggestedParticipants } = await suggestParticipants({ clientId });
+      const pastParticipants = isTestMode ? [] : (await suggestParticipants({ clientId })).suggestedParticipants;
+      
       const result = await generateMeetingMinutes({
         transcript: messageContent,
-        pastParticipants: suggestedParticipants,
+        pastParticipants: pastParticipants,
         clientId: clientId,
       });
       
@@ -79,6 +80,7 @@ export async function sendMessageAction(
     await addMessage(conversationId, modelMessage);
 
     const conversation = await getConversation(conversationId);
+    // Only generate title for the very first exchange.
     if (conversation && conversation.messages.length <= 2) { 
       const { title } = await generateConversationTitle({
         messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),

@@ -76,14 +76,7 @@ export default function SidebarContentComponent({
     return groups;
   };
 
-  const groupedConversations = groupConversationsByDate(
-    conversations.filter(c => c.agentId === activeAgentId)
-  );
-
-  // This check prevents crash on render if user is momentarily null
-  if (!user) {
-    return null;
-  }
+  const groupedConversations = groupConversationsByDate(conversations);
 
   return (
     <>
@@ -161,6 +154,9 @@ export default function SidebarContentComponent({
                   ))}
                 </div>
               ))}
+                 {conversations.length === 0 && !isLoading && (
+                    <p className="px-2 text-xs text-sidebar-foreground/60">No hay conversaciones.</p>
+                )}
             </SidebarMenu>
             )}
           </SidebarGroup>

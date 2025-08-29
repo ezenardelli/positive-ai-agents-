@@ -1,37 +1,14 @@
 'use client';
 
-import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { GoogleIcon, Logo } from '@/components/icons';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
 
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+interface LoginPageProps {
+    login: () => void;
+}
 
-export default function LoginPage() {
-  const { login, user, loading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (isTestMode) {
-      router.replace('/');
-      return;
-    }
-    if (user) {
-      router.replace('/');
-    }
-  }, [user, router]);
-
-  if (loading || user || isTestMode) {
-     return (
-      <div className="flex items-center justify-center h-screen bg-background">
-        <Loader2 className="w-12 h-12 animate-spin text-primary" />
-      </div>
-    );
-  }
-
+export default function LoginPage({ login }: LoginPageProps) {
   return (
     <main className="flex items-center justify-center min-h-screen bg-background p-4">
       <Card className="w-full max-w-sm shadow-xl border">
