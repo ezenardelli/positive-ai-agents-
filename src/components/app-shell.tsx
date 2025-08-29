@@ -20,11 +20,13 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { Loader2 } from 'lucide-react';
 import LoginPage from './login-page';
+import { generateMeetingMinutes } from '@/ai/flows/generate-meeting-minutes';
+
 
 // =================================================================================
 // MODO DE PRUEBA: Cambia este valor para alternar entre modos.
-// `true`: Omite el login de Firebase y usa un usuario simulado. (Para previsualizador/local)
-// `false`: Usa el login real de Google con Firebase. (Para producción)
+// `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
+// `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
 const FORCE_TEST_MODE = true;
 
@@ -43,46 +45,39 @@ export default function AppShell() {
   const handleCreateNewConversation = (agentIdToCreate: AgentId, clientContext?: string) => {
     if (!user) return;
     
-    setIsUiLoading(true);
-
-    if (FORCE_TEST_MODE) {
-        console.log("[AppShell] Creating new MOCK conversation (Client-side)");
-        const newMockConversation: Conversation = {
-            id: `mock_convo_${Date.now()}`,
-            userId: user.uid,
-            agentId: agentIdToCreate,
-            clientContext: clientContext,
-            messages: [],
-            title: 'Nueva Conversación (Test)',
-            createdAt: new Date(),
-        };
-        setConversations(prev => [newMockConversation, ...prev]);
-        setActiveConversationId(newMockConversation.id);
-        setIsUiLoading(false);
-        return;
-    }
-
     startSendMessageTransition(async () => {
-        try {
-            console.log(`[AppShell] Creating new conversation for user ${user.uid} with agent ${agentIdToCreate}`);
-            const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-            const newConversationWithDate: Conversation = {
-                ...newConversation,
-                createdAt: new Date(newConversation.createdAt),
-                messages: newConversation.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+      try {
+        let newConversation: Conversation;
+        if (FORCE_TEST_MODE) {
+            console.log("[AppShell] Creating new MOCK conversation (Client-side)");
+            newConversation = {
+                id: `mock_convo_${Date.now()}`,
+                userId: user.uid,
+                agentId: agentIdToCreate,
+                clientContext: clientContext,
+                messages: [],
+                title: 'Nueva Conversación (Test)',
+                createdAt: new Date(),
             };
-            setConversations(prev => [newConversationWithDate, ...prev]);
-            setActiveConversationId(newConversationWithDate.id);
-        } catch (error) {
-            console.error('Failed to create new conversation:', error);
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
-            });
-        } finally {
-            setIsUiLoading(false);
+        } else {
+            console.log(`[AppShell] Creating new conversation for user ${user.uid} with agent ${agentIdToCreate}`);
+            const createdConvo = await createConversationAction(user.uid, agentIdToCreate, clientContext);
+            newConversation = {
+                ...createdConvo,
+                createdAt: new Date(createdConvo.createdAt),
+                messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+            };
         }
+        setConversations(prev => [newConversation, ...prev]);
+        setActiveConversationId(newConversation.id);
+      } catch (error) {
+          console.error('Failed to create new conversation:', error);
+          toast({
+              variant: 'destructive',
+              title: 'Error',
+              description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
+          });
+      }
     });
   };
 
@@ -101,8 +96,8 @@ export default function AppShell() {
 
     if (FORCE_TEST_MODE) {
         console.log("[AppShell] Test mode is active. Skipping history fetch.");
-        setActiveConversationId(null);
         setConversations([]);
+        setActiveConversationId(null);
         setIsUiLoading(false);
         return;
     }
@@ -133,7 +128,6 @@ export default function AppShell() {
       .finally(() => {
           setIsUiLoading(false);
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading, activeAgentId]);
 
 
@@ -165,42 +159,37 @@ export default function AppShell() {
 
     startSendMessageTransition(async () => {
       try {
-        await sendMessageAction(
-          activeConversationId,
-          activeAgentId,
-          message,
-          activeConversation?.clientContext,
-          FORCE_TEST_MODE
-        );
-        
-        if (FORCE_TEST_MODE) {
-            // In test mode, we need to manually add the model's response, as there's no DB to refetch from.
-            // A simple approach is to simulate the response. A more complex one would involve another client-side call.
-            // For now, let's assume the action itself doesn't return the message and we need a refresh.
-            // This part might need adjustment based on how `sendMessageAction` is implemented for test mode.
-            console.log("Message sent in test mode, response should be handled by the action's logic.");
-            
-            // A mock refresh for test mode (this is simplified)
-             const modelMessage: Message = {
-                id: `optimistic-model-${Date.now()}`,
-                role: 'model',
-                content: 'Esta es una respuesta simulada en modo de prueba.',
-                createdAt: new Date(),
-            };
-            // Note: A real implementation would get the content from a `generate...` call inside the action.
-            // Since `sendMessageAction` is fire-and-forget, we won't get the response back directly.
-            // Let's refactor `sendMessageAction` to return the model's message.
+        let modelResponse: Message;
+
+        if(FORCE_TEST_MODE) {
+          console.log("[AppShell] Sending message in test mode (client-side flow)");
+           const result = await generateMeetingMinutes({
+            transcript: message,
+            pastParticipants: [],
+            isTestMode: true,
+          });
+          modelResponse = {
+            id: `model-response-${Date.now()}`,
+            role: 'model',
+            content: result.fullGeneratedText,
+            createdAt: new Date(),
+          };
+        } else {
+          modelResponse = await sendMessageAction(
+            activeConversationId,
+            activeAgentId,
+            message,
+            activeConversation?.clientContext
+          );
         }
 
-        // After the action is successful, refresh the history to get the true state from the server.
-        // This ensures UI consistency and captures any server-side changes (like title updates).
-         const updatedHistory = await getHistoryAction(user.uid, activeAgentId, FORCE_TEST_MODE);
-        const updatedHistoryWithDates = updatedHistory.map(c => ({
-          ...c,
-          createdAt: new Date(c.createdAt),
-          messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
-        }));
-        setConversations(updatedHistoryWithDates);
+        setConversations(prev =>
+          prev.map(c =>
+            c.id === activeConversationId
+              ? { ...c, messages: [...c.messages.filter(m => m.id !== optimisticUserMessage.id), optimisticUserMessage, modelResponse] }
+              : c
+          )
+        );
 
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -253,7 +242,7 @@ export default function AppShell() {
           )}
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
-        {isUiLoading && !activeConversation && conversations.length === 0 ? (
+        {isUiLoading && !activeConversation && conversations.length === 0 && !FORCE_TEST_MODE ? (
            <div className="flex items-center justify-center h-full bg-card rounded-lg border">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
            </div>
@@ -264,7 +253,7 @@ export default function AppShell() {
               conversation={activeConversation}
               onSendMessage={handleSendMessage}
               isLoading={isProcessing}
-              onNewConversation={() => handleCreateNewConversation(activeGit, activeClientContext)}
+              onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
             />
         )}
       </SidebarInset>

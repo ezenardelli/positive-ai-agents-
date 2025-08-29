@@ -4,6 +4,7 @@ import 'dotenv/config';
 
 import {
   generateMeetingMinutes,
+  type GenerateMeetingMinutesInput
 } from '@/ai/flows/generate-meeting-minutes';
 import { suggestParticipants } from '@/ai/flows/suggest-participants';
 import { generateConversationTitle } from '@/ai/flows/generate-conversation-title';
@@ -18,19 +19,11 @@ import {
 } from '@/services/firestore-service';
 import { processDocx } from '@/ai/flows/process-docx-flow';
 
-// Mock database for test mode
-let mockConversations: Conversation[] = [];
-
 export async function getHistoryAction(
   userId: string,
   agentId: AgentId,
-  isTestMode: boolean = false
 ): Promise<Conversation[]> {
-  if (isTestMode) {
-    console.log('[ACTION - getHistoryAction] TEST MODE: Returning mock history');
-    return JSON.parse(JSON.stringify(mockConversations.filter(c => c.agentId === agentId && c.userId === userId)));
-  }
-  console.log('[ACTION] Getting history from Firestore for user:', userId);
+  console.log(`[ACTION] Getting history from Firestore for user: ${userId} and agent: ${agentId}`);
   const allConversations = await getConversationsFromDb(userId);
   return allConversations.filter(c => c.agentId === agentId);
 }
@@ -40,32 +33,24 @@ export async function sendMessageAction(
   agentId: AgentId,
   messageContent: string,
   clientContext?: string,
-  isTestMode: boolean = false,
-): Promise<void> {
-  console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}, Test Mode: ${isTestMode}`);
+): Promise<Message> {
+  console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}`);
 
   const userMessage: Message = {
-    id: `msg-${Date.now()}`,
+    id: `msg-user-${Date.now()}`,
     role: 'user',
     content: messageContent,
     createdAt: new Date(),
   };
 
-  if (isTestMode) {
-    const convo = mockConversations.find(c => c.id === conversationId);
-    if (convo) {
-      convo.messages.push(userMessage);
-    }
-  } else {
-    await addMessageToDb(conversationId, userMessage);
-  }
+  await addMessageToDb(conversationId, userMessage);
 
   let responseContent = '';
   const modelMessage: Message = {
     role: 'model',
-    content: 'Error',
+    content: 'Error processing response.',
     createdAt: new Date(),
-    id: `msg-${Date.now() + 1}`,
+    id: `msg-model-${Date.now()}`,
   };
 
   try {
@@ -77,18 +62,18 @@ export async function sendMessageAction(
       const clientId = clientContext || 'mock-client';
       const pastParticipants = (await suggestParticipants({ clientId })).suggestedParticipants;
       
-      const result = await generateMeetingMinutes({
+      const genInput: GenerateMeetingMinutesInput = {
         transcript: messageContent,
         pastParticipants: pastParticipants,
-        isTestMode: isTestMode, // Pass test mode flag
-      });
+        isTestMode: false,
+      };
+
+      const result = await generateMeetingMinutes(genInput);
       
       responseContent = result.fullGeneratedText;
 
-      // In production, save the generated minute
-      if (!isTestMode) {
-        await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
-      }
+      // Save the generated minute to Firestore
+      await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
 
     } else if (agentId === 'posiAgent') {
       responseContent = 'Posi Agent coming soon!';
@@ -96,7 +81,7 @@ export async function sendMessageAction(
       responseContent = 'Error: Agente no encontrado.';
     }
   } catch (error) {
-    console.error("Error processing agent logic:", error);
+    console.error("[ACTION] Error processing agent logic:", error);
     if (error instanceof Error && (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY'))) {
         responseContent = "Error: La API Key de Gemini no está configurada o no es válida. Por favor, revisa el archivo .env.";
     } else {
@@ -106,27 +91,22 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  if (isTestMode) {
-      const convo = mockConversations.find(c => c.id === conversationId);
-      if (convo) {
-        convo.messages.push(modelMessage);
-      }
-  } else {
-      await addMessageToDb(conversationId, modelMessage);
+  await addMessageToDb(conversationId, modelMessage);
 
-      const conversation = await getConversationFromDb(conversationId);
-      // Title generation only on the second message (first user, first model)
-      if (conversation && conversation.messages.length === 2) { 
-        try {
-          const { title } = await generateConversationTitle({
-              messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
-          });
-          await updateConversationTitleInDb(conversationId, title);
-        } catch (e) {
-          console.error("Failed to generate title in production:", e);
-        }
-      }
+  const conversation = await getConversationFromDb(conversationId);
+  // Title generation only on the second message (first user, first model)
+  if (conversation && conversation.messages.length === 2) { 
+    try {
+      const { title } = await generateConversationTitle({
+          messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
+      });
+      await updateConversationTitleInDb(conversationId, title);
+    } catch (e) {
+      console.error("[ACTION] Failed to generate title:", e);
+    }
   }
+  
+  return modelMessage;
 }
 
 export async function createConversationAction(
@@ -134,7 +114,7 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-  console.log('[ACTION - createConversationAction] Creating new conversation for user:', userId);
+  console.log(`[ACTION - createConversationAction] Creating new conversation for user: ${userId}`);
   return await createConversationInDb(userId, agentId, clientContext);
 }
 
