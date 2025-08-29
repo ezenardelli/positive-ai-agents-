@@ -41,6 +41,24 @@ export default function AppShell() {
     }
   }, [user, authLoading, router]);
 
+  const handleCreateNewConversation = async (agentIdToCreate: AgentId) => {
+    if (!user) return;
+    try {
+      const newConversation = await createConversationAction(user.uid, agentIdToCreate);
+      setConversations(prev => [newConversation, ...prev]);
+      setActiveConversationId(newConversation.id);
+      return newConversation;
+    } catch (error) {
+      console.error('Failed to create new conversation:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'No se pudo crear una nueva conversación.',
+      });
+      return null;
+    }
+  };
+
   useEffect(() => {
     if (user) {
       setIsLoading(true);
@@ -49,11 +67,14 @@ export default function AppShell() {
         const agentConversations = history.filter(c => c.agentId === activeAgentId);
         if (agentConversations.length > 0) {
           setActiveConversationId(agentConversations[0].id);
+          setIsLoading(false);
         } else {
           // If no conversations exist for the active agent, create one.
-          handleCreateNewConversation(activeAgentId);
+          startTransition(async () => {
+             await handleCreateNewConversation(activeAgentId);
+             setIsLoading(false);
+          });
         }
-        setIsLoading(false);
       }).catch(err => {
         console.error("Failed to load history:", err);
         toast({
@@ -71,35 +92,16 @@ export default function AppShell() {
 
   const handleSelectAgent = (agentId: AgentId) => {
     setActiveAgentId(agentId);
-    // The useEffect listening to activeAgentId will handle fetching/creating conversations
+    setActiveConversationId(null); // Reset active conversation
   };
 
   const handleLogout = () => {
     logout();
   };
 
-  const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
-    if (!user) return;
-    startTransition(async () => {
-      try {
-        const newConversation = await createConversationAction(user.uid, agentIdToCreate);
-        setConversations(prev => [newConversation, ...prev]);
-        setActiveConversationId(newConversation.id);
-      } catch (error) {
-        console.error('Failed to create new conversation:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'No se pudo crear una nueva conversación.',
-        });
-      }
-    });
-  };
-
   const handleSendMessage = (message: string, clientContext?: string) => {
     if (!activeConversationId) return;
 
-    // Optimistically update UI
     const optimisticMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     setConversations(prev =>
       prev.map(c =>
@@ -118,22 +120,25 @@ export default function AppShell() {
           clientContext
         );
 
+        const finalUserMessage: Message = { ...optimisticMessage, createdAt: new Date() };
+
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-              // Replace optimistic user message with the one from the server if needed
-              // or just add the model response. For simplicity, we just add the response.
-              // A more robust solution might involve message IDs.
-              const existingMessages = c.messages.filter(m => m.role !== 'user' || m.content !== optimisticMessage.content);
-              return { ...c, messages: [...existingMessages, optimisticMessage, responseMessage] };
+              const existingMessages = c.messages.filter(m => m.content !== optimisticMessage.content);
+              return { ...c, messages: [...existingMessages, finalUserMessage, responseMessage] };
             }
             return c;
           })
         );
         
-         // Find conversation and update title if it's new
          const updatedHistory = await getHistoryAction(user!.uid);
          setConversations(updatedHistory);
+         const updatedConv = updatedHistory.find(c => c.id === activeConversationId);
+         if (updatedConv) {
+           setConversations(prev => prev.map(p => p.id === updatedConv.id ? updatedConv : p));
+         }
+
 
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -142,10 +147,9 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo enviar el mensaje.',
         });
-        // Revert optimistic update on error
         setConversations(prev =>
             prev.map(c =>
-                c.id === activeConversationId ? {...c, messages: c.messages.slice(0, -1)} : c
+                c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.content !== optimisticMessage.content)} : c
             )
         );
       }
@@ -171,7 +175,7 @@ export default function AppShell() {
           activeConversationId={activeConversationId}
           onSelectAgent={handleSelectAgent}
           onSelectConversation={setActiveConversationId}
-          onNewConversation={() => handleCreateNewConversation(activeAgentId)}
+          onNewConversation={() => startTransition(async () => {await handleCreateNewConversation(activeAgentId)})}
           onLogout={handleLogout}
           isLoading={isLoading}
         />
@@ -182,7 +186,7 @@ export default function AppShell() {
           agent={activeAgent}
           conversation={activeConversation}
           onSendMessage={handleSendMessage}
-          isLoading={isPending}
+          isLoading={isPending || isLoading}
         />
       </SidebarInset>
     </SidebarProvider>
