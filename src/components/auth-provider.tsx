@@ -15,25 +15,23 @@ type AuthContextType = {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const hasFirebaseConfig = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
-const mockUser: User = {
-  uid: 'mock-user-id',
-  email: 'test@positiveit.com.ar',
-  displayName: 'Test User',
-  photoURL: `https://i.pravatar.cc/150?u=test@positiveit.com.ar`,
-  providerId: 'google.com',
-  emailVerified: true,
+// This is a mock user for testing environments
+const mockUser = {
+    uid: 'mock-user-id',
+    displayName: 'Test User',
+    email: 'test@example.com',
+    photoURL: 'https://picsum.photos/100/100',
 } as User;
-
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const router = useRouter();
 
   useEffect(() => {
-    if (isTestMode) {
+    if (!hasFirebaseConfig) {
+      console.warn("Firebase config not found. App is in test mode.");
       setUser(mockUser);
       setLoading(false);
       return;
@@ -58,6 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async () => {
+    if (!hasFirebaseConfig) {
+      setUser(mockUser); // Set mock user on login click in test mode
+      return;
+    }
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
@@ -68,11 +70,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Error during sign-in:", error);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
 
   const logout = async () => {
+    if (!hasFirebaseConfig) {
+        setUser(null);
+        return;
+    };
     setLoading(true);
     try {
       await signOut(auth);

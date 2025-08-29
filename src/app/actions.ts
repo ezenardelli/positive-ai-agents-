@@ -16,10 +16,11 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+// Use the presence of Firebase credentials to determine if we are in production
+const isProduction = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
-  if (isTestMode) return [];
+  if (!isProduction) return Promise.resolve([]);
   return await getConversations(userId);
 }
 
@@ -30,7 +31,7 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
 
-  if (!isTestMode && conversationId) {
+  if (isProduction && conversationId) {
       const userMessage: Message = {
         role: 'user',
         content: messageContent,
@@ -47,9 +48,13 @@ export async function sendMessageAction(
   };
 
   try {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("La variable de entorno GEMINI_API_KEY no está configurada.");
+    }
+
     if (agentId === 'minutaMaker') {
       const clientId = clientContext || 'mock-client';
-      const pastParticipants = isTestMode ? [] : (await suggestParticipants({ clientId })).suggestedParticipants;
+      const pastParticipants = !isProduction ? [] : (await suggestParticipants({ clientId })).suggestedParticipants;
       
       const result = await generateMeetingMinutes({
         transcript: messageContent,
@@ -75,7 +80,7 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  if (!isTestMode && conversationId) {
+  if (isProduction && conversationId) {
     await addMessage(conversationId, modelMessage);
 
     const conversation = await getConversation(conversationId);
@@ -97,7 +102,8 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-   if (isTestMode) {
+   if (!isProduction) {
+    // This is a mock for local/testing environments without firebase
     return {
       id: `mock-convo-${Date.now()}`,
       userId: 'mock-user-id',

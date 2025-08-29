@@ -21,8 +21,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { Loader2 } from 'lucide-react';
 import LoginPage from './login-page';
 
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
   
@@ -36,17 +34,14 @@ export default function AppShell() {
   const { toast } = useToast();
 
   const handleCreateNewConversation = (agentIdToCreate: AgentId, clientContext?: string) => {
+    if (!user) return;
+    
     startSendMessageTransition(async () => {
       try {
-        if (!user) throw new Error("User not authenticated");
-        
         setIsUiLoading(true);
-
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-        
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
-
       } catch (error) {
         console.error('Failed to create new conversation:', error);
         toast({
@@ -61,39 +56,39 @@ export default function AppShell() {
   };
 
   useEffect(() => {
-    if (authLoading) {
-      setIsUiLoading(true);
+    if (!user || authLoading) {
+      setIsUiLoading(authLoading);
       return;
     }
-    if (!user) {
-      setIsUiLoading(false);
-      return;
-    }
-
+  
     setIsUiLoading(true);
-    getHistoryAction(user.uid).then(history => {
-        setConversations(history);
+    getHistoryAction(user.uid)
+      .then(history => {
         const agentHistory = history.filter(c => c.agentId === activeAgentId);
+        // Put agent history at the start, then other agents
+        const sortedHistory = [...agentHistory, ...history.filter(c => c.agentId !== activeAgentId)];
+        setConversations(sortedHistory);
+  
         if (agentHistory.length > 0) {
-            setActiveConversationId(agentHistory[0].id);
+          setActiveConversationId(agentHistory[0].id);
         } else {
-            // No history, create a new conversation
-            handleCreateNewConversation(activeAgentId, isTestMode ? 'cliente_A' : CLIENTS[0].id);
+          // No history for this agent, create a new conversation
+          handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
         }
-    }).catch(err => {
+      })
+      .catch(err => {
         console.error("Failed to load history:", err);
         toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: 'No se pudo cargar el historial de conversaciones.',
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo cargar el historial de conversaciones.',
         });
-    }).finally(() => {
+      })
+      .finally(() => {
         setIsUiLoading(false);
-    });
-
-  // handleCreateNewConversation should not be in dependency array
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, activeAgentId, authLoading, toast]);
+  }, [user, authLoading, activeAgentId]);
 
 
   const activeAgent = agents.find(a => a.id === activeAgentId)!;
@@ -102,7 +97,8 @@ export default function AppShell() {
 
   const handleSelectAgent = (agentId: AgentId) => {
     if (agentId !== activeAgentId) {
-      setActiveConversationId(null); 
+      setIsUiLoading(true);
+      setActiveConversationId(null);
       setActiveAgentId(agentId);
     }
   };
@@ -113,11 +109,11 @@ export default function AppShell() {
     const optimisticUserMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     
     setConversations(prev =>
-        prev.map(c =>
-            c.id === activeConversationId
-                ? { ...c, messages: [...c.messages, optimisticUserMessage] }
-                : c
-        )
+      prev.map(c =>
+        c.id === activeConversationId
+          ? { ...c, messages: [...c.messages, optimisticUserMessage] }
+          : c
+      )
     );
 
     startSendMessageTransition(async () => {
@@ -137,7 +133,7 @@ export default function AppShell() {
                const updatedMessages = [...otherMessages, optimisticUserMessage, responseMessage];
                
                // Auto-update title on first real model response
-               if (c.messages.length <= 1 && !isTestMode) { 
+               if (c.messages.length <= 1) { 
                  getHistoryAction(user.uid).then(updatedHistory => {
                     const freshConvo = updatedHistory.find(uh => uh.id === c.id);
                     if (freshConvo) {
@@ -155,7 +151,7 @@ export default function AppShell() {
         toast({
           variant: 'destructive',
           title: 'Error',
-          description: 'No se pudo enviar el mensaje.',
+          description: `No se pudo enviar el mensaje. ${error instanceof Error ? error.message : ''}`,
         });
         // Rollback optimistic message
         setConversations(prev =>
@@ -184,7 +180,6 @@ export default function AppShell() {
   return (
     <SidebarProvider>
       <Sidebar>
-        {user && (
           <SidebarContentComponent
             user={user}
             agents={agents}
@@ -197,7 +192,6 @@ export default function AppShell() {
             onLogout={logout}
             isLoading={isUiLoading}
           />
-        )}
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
         <ChatInterface

@@ -1,6 +1,6 @@
 import AppShell from '@/components/app-shell';
 
 export default function Home() {
-  // AppShell se encargará de mostrar el login o el dashboard.
+  // AppShell will now handle the logic of showing the login page or the dashboard.
   return <AppShell />;
 }
