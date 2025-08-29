@@ -1,5 +1,7 @@
 'use server';
 
+import 'dotenv/config';
+
 import {
   generateMeetingMinutes,
 } from '@/ai/flows/generate-meeting-minutes';
