@@ -60,7 +60,6 @@ export default function AppShell() {
             };
         } else {
             console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
-            // The action now returns a full Conversation object, ready to be used.
             const createdConvo = await createConversationAction(user.uid, 'posiAgent');
              newConversation = {
                 ...createdConvo,
@@ -168,15 +167,15 @@ export default function AppShell() {
 
             // Once we have the real response, we get the updated conversation from the DB
             // to ensure our local state is perfectly in sync.
-            const updatedConversation = await getHistoryAction(user.uid); // Re-fetch all, simpler than merging
-            const updatedConversationsWithDates = updatedConversation.map(c => ({
+            const updatedConversations = await getHistoryAction(user.uid); 
+            const updatedConversationsWithDates = updatedConversations.map(c => ({
                 ...c,
                 createdAt: new Date(c.createdAt),
                 messages: c.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) }))
             }));
             setConversations(updatedConversationsWithDates);
 
-        } else { // Test mode logic remains the same
+        } else { 
              const modelResponse = await sendMessageAction(
                 forConversation.id,
                 forConversation.agentId,
@@ -190,10 +189,9 @@ export default function AppShell() {
             setConversations(prev =>
                 prev.map(c => {
                     if (c.id === forConversation.id) {
-                        const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id),
-                            { ...optimisticUserMessage, id: `user-${Date.now()}` }, // "commit" the optimistic message
-                            { ...modelResponse, createdAt: new Date(modelResponse.createdAt) }
-                        ];
+                         const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
+                         const finalModelMessage = { ...modelResponse, createdAt: new Date(modelResponse.createdAt) };
+                        const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, finalModelMessage];
                         
                         let newTitle = c.title;
                         if (finalMessages.length === 2 && (c.title === 'Nueva Conversación' || !c.title)) {
