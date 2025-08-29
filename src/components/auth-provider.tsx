@@ -17,7 +17,7 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 
 // This is a mock user for testing environments
 const mockUser = {
-    uid: 'mock-user-id',
+    uid: 'mock-user-id-123',
     displayName: 'Test User',
     email: 'test@example.com',
     photoURL: 'https://picsum.photos/100/100',
@@ -37,13 +37,16 @@ const mockUser = {
 } as User;
 
 // Use a separate hook for the FORCE_TEST_MODE flag
-export function AuthProvider({ children, forceTestMode = false }: { children: ReactNode, forceTestMode?: boolean }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // This is a global flag now, easy to check in other parts of the app if needed
+  const isTestMode = process.env.NEXT_PUBLIC_FORCE_TEST_MODE === 'true';
+
   useEffect(() => {
     // If test mode is forced, bypass Firebase entirely
-    if (forceTestMode) {
+    if (isTestMode) {
       setUser(mockUser);
       setLoading(false);
       return;
@@ -65,10 +68,10 @@ export function AuthProvider({ children, forceTestMode = false }: { children: Re
     });
 
     return () => unsubscribe();
-  }, [forceTestMode]);
+  }, [isTestMode]);
 
   const login = async () => {
-    if (forceTestMode) {
+    if (isTestMode) {
       setUser(mockUser);
       return;
     }
@@ -87,7 +90,7 @@ export function AuthProvider({ children, forceTestMode = false }: { children: Re
   };
 
   const logout = async () => {
-    if (forceTestMode) {
+    if (isTestMode) {
         setUser(null);
         return;
     };

@@ -11,12 +11,14 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import { saveMinute } from '@/services/firestore-service';
 
 const GenerateMeetingMinutesInputSchema = z.object({
   transcript: z.string().describe('La transcripción de la reunión.'),
   pastParticipants: z
     .array(z.string())
-    .describe('Participantes anteriores en reuniones similares.')
+    .describe('Participantes anteriores en reuniones similares.'),
+  isTestMode: z.boolean().optional().describe('Flag to indicate if running in test mode.')
 });
 export type GenerateMeetingMinutesInput = z.infer<
   typeof GenerateMeetingMinutesInputSchema

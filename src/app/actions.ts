@@ -18,8 +18,18 @@ import {
 } from '@/services/firestore-service';
 import { processDocx } from '@/ai/flows/process-docx-flow';
 
+// Mock database for test mode
+let mockConversations: Conversation[] = [];
 
-export async function getHistoryAction(userId: string, agentId: AgentId): Promise<Conversation[]> {
+export async function getHistoryAction(
+  userId: string,
+  agentId: AgentId,
+  isTestMode: boolean = false
+): Promise<Conversation[]> {
+  if (isTestMode) {
+    console.log('[ACTION - getHistoryAction] TEST MODE: Returning mock history');
+    return JSON.parse(JSON.stringify(mockConversations.filter(c => c.agentId === agentId && c.userId === userId)));
+  }
   console.log('[ACTION] Getting history from Firestore for user:', userId);
   const allConversations = await getConversationsFromDb(userId);
   return allConversations.filter(c => c.agentId === agentId);
@@ -29,17 +39,26 @@ export async function sendMessageAction(
   conversationId: string,
   agentId: AgentId,
   messageContent: string,
-  clientContext?: string
+  clientContext?: string,
+  isTestMode: boolean = false,
 ): Promise<void> {
-  console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}`);
-  
+  console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}, Test Mode: ${isTestMode}`);
+
   const userMessage: Message = {
     id: `msg-${Date.now()}`,
     role: 'user',
     content: messageContent,
     createdAt: new Date(),
   };
-  await addMessageToDb(conversationId, userMessage);
+
+  if (isTestMode) {
+    const convo = mockConversations.find(c => c.id === conversationId);
+    if (convo) {
+      convo.messages.push(userMessage);
+    }
+  } else {
+    await addMessageToDb(conversationId, userMessage);
+  }
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -60,13 +79,16 @@ export async function sendMessageAction(
       
       const result = await generateMeetingMinutes({
         transcript: messageContent,
-        pastParticipants: pastParticipants
+        pastParticipants: pastParticipants,
+        isTestMode: isTestMode, // Pass test mode flag
       });
       
       responseContent = result.fullGeneratedText;
 
-      // Save the generated minute along with the transcript used
-      await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
+      // In production, save the generated minute
+      if (!isTestMode) {
+        await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
+      }
 
     } else if (agentId === 'posiAgent') {
       responseContent = 'Posi Agent coming soon!';
@@ -84,19 +106,26 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  await addMessageToDb(conversationId, modelMessage);
+  if (isTestMode) {
+      const convo = mockConversations.find(c => c.id === conversationId);
+      if (convo) {
+        convo.messages.push(modelMessage);
+      }
+  } else {
+      await addMessageToDb(conversationId, modelMessage);
 
-  const conversation = await getConversationFromDb(conversationId);
-  // Title generation only on the second message (first user, first model)
-  if (conversation && conversation.messages.length === 2) { 
-    try {
-      const { title } = await generateConversationTitle({
-          messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
-      });
-      await updateConversationTitleInDb(conversationId, title);
-    } catch (e) {
-      console.error("Failed to generate title in production:", e);
-    }
+      const conversation = await getConversationFromDb(conversationId);
+      // Title generation only on the second message (first user, first model)
+      if (conversation && conversation.messages.length === 2) { 
+        try {
+          const { title } = await generateConversationTitle({
+              messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
+          });
+          await updateConversationTitleInDb(conversationId, title);
+        } catch (e) {
+          console.error("Failed to generate title in production:", e);
+        }
+      }
   }
 }
 
@@ -105,7 +134,7 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-  console.log('[ACTION] Creating new conversation in Firestore for user:', userId);
+  console.log('[ACTION - createConversationAction] Creating new conversation for user:', userId);
   return await createConversationInDb(userId, agentId, clientContext);
 }
 
