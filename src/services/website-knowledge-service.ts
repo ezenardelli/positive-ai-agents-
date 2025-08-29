@@ -19,18 +19,19 @@ const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 export async function getWebsiteContent(): Promise<string> {
   const now = Date.now();
 
+  // Although we use no-store for the fetch, this in-memory cache can prevent
+  // re-fetching within the same server instance in a very short time frame.
   if (cache && (now - cache.timestamp) < CACHE_DURATION_MS) {
-    console.log('[WebsiteKnowledgeService] Returning content from cache.');
+    console.log('[WebsiteKnowledgeService] Returning content from in-memory cache.');
     return cache.content;
   }
 
   console.log('[WebsiteKnowledgeService] Fetching fresh content from website.');
   try {
+    // Using { cache: 'no-store' } to ensure we always get the latest version
+    // of the website and avoid stale cache issues.
     const response = await fetch('https://positiveit.tech/', {
-      next: {
-        // Revalidate cache every 10 minutes
-        revalidate: 600,
-      }
+      cache: 'no-store',
     });
 
     if (!response.ok) {
@@ -45,9 +46,16 @@ export async function getWebsiteContent(): Promise<string> {
     const textContent = html
       .replace(/<style[^>]*>.*<\/style>/gs, ' ') // Remove style blocks
       .replace(/<script[^>]*>.*<\/script>/gs, ' ') // Remove script blocks
+      .replace(/<nav[^>]*>.*<\/nav>/gs, ' ') // Remove nav blocks
+      .replace(/<footer[^>]*>.*<\/footer>/gs, ' ') // remove footer blocks
       .replace(/<[^>]+>/g, ' ') // Remove all other HTML tags
       .replace(/\s+/g, ' ') // Replace multiple whitespace chars with a single space
       .trim();
+    
+    if (!textContent) {
+        console.warn('[WebsiteKnowledgeService] Extracted text content is empty.');
+        return 'Error: No se pudo extraer contenido del sitio web de Positive IT.';
+    }
 
     cache = { content: textContent, timestamp: now };
     
