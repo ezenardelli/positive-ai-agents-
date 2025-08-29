@@ -29,7 +29,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = false;
+const FORCE_TEST_MODE = true;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
