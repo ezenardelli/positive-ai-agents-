@@ -20,7 +20,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { Loader2 } from 'lucide-react';
 import LoginPage from './login-page';
-import { generateMeetingMinutes } from '@/ai/flows/generate-meeting-minutes';
 
 
 // =================================================================================
@@ -40,7 +39,7 @@ export default function AppShell() {
 
   const { toast } = useToast();
 
-  const handleCreateNewConversation = async (): Promise<void> => {
+  const handleCreateNewConversation = async (): Promise<Conversation | undefined> => {
     if (!user) return;
     
     setIsUiLoading(true);
@@ -54,7 +53,7 @@ export default function AppShell() {
                 agentId: 'posiAgent', // Default agent
                 clientContext: undefined,
                 messages: [],
-                title: 'Nueva Conversión',
+                title: 'Nueva Conversación',
                 createdAt: new Date(),
             };
         } else {
@@ -68,6 +67,7 @@ export default function AppShell() {
         }
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
+        return newConversation;
     } catch (error) {
         console.error('Failed to create new conversation:', error);
         toast({
@@ -75,6 +75,7 @@ export default function AppShell() {
             title: 'Error',
             description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
         });
+        return undefined;
     } finally {
         setIsUiLoading(false);
     }
@@ -94,9 +95,8 @@ export default function AppShell() {
     setIsUiLoading(true);
 
     if (FORCE_TEST_MODE) {
-        console.log("[AppShell Test Mode] Starting in test mode. No history fetched.");
-        setConversations([]);
-        setActiveConversationId(null);
+        console.log("[AppShell Test Mode] Starting in test mode. Auto-creating first conversation.");
+        handleCreateNewConversation();
         setIsUiLoading(false);
         return;
     }
@@ -113,8 +113,8 @@ export default function AppShell() {
         if (historyWithDates.length > 0) {
           setActiveConversationId(historyWithDates[0].id);
         } else {
-          // No history, user will be prompted to create a new conversation
-          setActiveConversationId(null);
+          // No history, create a new conversation to start
+          handleCreateNewConversation();
         }
       })
       .catch(err => {
@@ -133,15 +133,15 @@ export default function AppShell() {
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
 
-  const handleSendMessage = (message: string) => {
-    if (!activeConversationId || !user || !activeConversation) return;
+  const handleSendMessage = (message: string, forConversation: Conversation) => {
+    if (!user) return;
 
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
     
     // Optimistic UI update for the user's message
     setConversations(prev =>
         prev.map(c =>
-            c.id === activeConversationId
+            c.id === forConversation.id
                 ? { ...c, messages: [...c.messages, optimisticUserMessage] }
                 : c
         )
@@ -149,45 +149,29 @@ export default function AppShell() {
 
     startSendMessageTransition(async () => {
       try {
-        let modelResponse: Message;
+        const modelResponse = await sendMessageAction(
+          forConversation.id,
+          forConversation.agentId,
+          message,
+          forConversation.clientContext,
+          FORCE_TEST_MODE,
+        );
 
-        if(FORCE_TEST_MODE) {
-          console.log("[AppShell Test Mode] Simulating sending message with agent:", activeConversation.agentId);
-          let responseContent = '';
-          if (activeConversation.agentId === 'minutaMaker') {
-            const result = await generateMeetingMinutes({
-              transcript: message,
-              pastParticipants: [],
-              isTestMode: true,
-            });
-            responseContent = result.fullGeneratedText;
-          } else {
-            responseContent = `Respuesta simulada para Posi Agent sobre: "${message}"`;
-          }
-          
-          modelResponse = {
-            id: `model-response-${Date.now()}`,
-            role: 'model',
-            content: responseContent,
-            createdAt: new Date(),
-          };
-          
-        } else {
-          // Production mode logic
-          modelResponse = await sendMessageAction(
-            activeConversationId,
-            activeConversation.agentId,
-            message,
-            activeConversation.clientContext
-          );
-        }
          // Final state update with model's response
          setConversations(prev =>
               prev.map(c => {
-                  if (c.id === activeConversationId) {
+                  if (c.id === forConversation.id) {
+                      // Replace optimistic message with the real one and add model response
                       const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
                       finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, {...modelResponse, createdAt: new Date(modelResponse.createdAt)});
-                      return { ...c, messages: finalMessages };
+                      
+                      // Also, update the title if it's the first exchange
+                      let newTitle = c.title;
+                      if (finalMessages.length === 2 && !c.title) {
+                        const potentialTitle = message.substring(0, 30) + "...";
+                        newTitle = potentialTitle
+                      }
+                      return { ...c, messages: finalMessages, title: newTitle };
                   }
                   return c;
               })
@@ -202,7 +186,7 @@ export default function AppShell() {
         // Rollback optimistic message on error
         setConversations(prev =>
             prev.map(c =>
-                c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id)} : c
+                c.id === forConversation.id ? {...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id)} : c
             )
         );
       }
@@ -217,19 +201,16 @@ export default function AppShell() {
       )
     );
 
-    // If not in test mode, persist the change to the backend
-    if (!FORCE_TEST_MODE) {
-      updateConversationContextAction(conversationId, newAgentId, newClientContext)
-        .catch(err => {
-          console.error("Failed to update context in DB:", err);
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: 'No se pudo guardar el cambio de contexto.',
-          });
-          // NOTE: Could add rollback logic here if needed
+    updateConversationContextAction(conversationId, newAgentId, newClientContext, FORCE_TEST_MODE)
+      .catch(err => {
+        console.error("Failed to update context in DB:", err);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo guardar el cambio de contexto.',
         });
-    }
+        // NOTE: Could add rollback logic here if needed
+      });
   };
   
   if (authLoading) {
@@ -271,6 +252,7 @@ export default function AppShell() {
               key={activeConversationId} // Re-mount when conversation changes
               conversation={activeConversation}
               onSendMessage={handleSendMessage}
+              onNewConversation={handleCreateNewConversation}
               onContextChange={handleContextChange}
               isLoading={isProcessing}
             />

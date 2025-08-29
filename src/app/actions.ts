@@ -8,6 +8,7 @@ import {
 } from '@/ai/flows/generate-meeting-minutes';
 import { suggestParticipants } from '@/ai/flows/suggest-participants';
 import { generateConversationTitle } from '@/ai/flows/generate-conversation-title';
+import { answerPositiveItQuestions } from '@/ai/flows/answer-positive-it-questions';
 import type { AgentId, Conversation, Message } from '@/lib/types';
 import { 
   getConversations as getConversationsFromDb,
@@ -32,9 +33,10 @@ export async function sendMessageAction(
   conversationId: string,
   agentId: AgentId,
   messageContent: string,
-  clientContext?: string,
+  clientContext: string | undefined,
+  isTestMode: boolean,
 ): Promise<Message> {
-  console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}`);
+  console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}, Test Mode: ${isTestMode}`);
 
   const userMessage: Message = {
     id: `msg-user-${Date.now()}`,
@@ -43,7 +45,9 @@ export async function sendMessageAction(
     createdAt: new Date(),
   };
 
-  await addMessageToDb(conversationId, userMessage);
+  if (!isTestMode) {
+    await addMessageToDb(conversationId, userMessage);
+  }
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -54,7 +58,7 @@ export async function sendMessageAction(
   };
 
   try {
-    if (!process.env.GEMINI_API_KEY) {
+    if (!process.env.GEMINI_API_KEY && !isTestMode) {
       throw new Error("La variable de entorno GEMINI_API_KEY no está configurada.");
     }
 
@@ -63,24 +67,26 @@ export async function sendMessageAction(
         throw new Error("Se requiere un cliente para el agente Minuta Maker.");
       }
       const clientId = clientContext;
-      const pastParticipants = (await suggestParticipants({ clientId })).suggestedParticipants;
+      const pastParticipants = !isTestMode ? (await suggestParticipants({ clientId })).suggestedParticipants : [];
       
       const genInput: GenerateMeetingMinutesInput = {
         transcript: messageContent,
         pastParticipants: pastParticipants,
-        isTestMode: false,
+        isTestMode: isTestMode,
       };
 
       const result = await generateMeetingMinutes(genInput);
       
       responseContent = result.fullGeneratedText;
 
-      // Save the generated minute to Firestore
-      await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
+      // Save the generated minute to Firestore only if not in test mode
+      if (!isTestMode) {
+        await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
+      }
 
     } else if (agentId === 'posiAgent') {
-      // Dummy response for now
-      responseContent = `Claro, aquí tienes información sobre Positive IT. Somos una empresa líder en soluciones tecnológicas... (Respuesta simulada para Posi Agent).`;
+      const result = await answerPositiveItQuestions({ question: messageContent });
+      responseContent = result.answer;
     } else {
       responseContent = 'Error: Agente no encontrado.';
     }
@@ -95,18 +101,20 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  await addMessageToDb(conversationId, modelMessage);
+  if (!isTestMode) {
+    await addMessageToDb(conversationId, modelMessage);
 
-  const conversation = await getConversationFromDb(conversationId);
-  // Title generation only on the second message (first user, first model)
-  if (conversation && conversation.messages.length === 2 && !conversation.title) { 
-    try {
-      const { title } = await generateConversationTitle({
-          messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
-      });
-      await updateConversationTitleInDb(conversationId, title);
-    } catch (e) {
-      console.error("[ACTION] Failed to generate title:", e);
+    const conversation = await getConversationFromDb(conversationId);
+    // Title generation only on the second message (first user, first model)
+    if (conversation && conversation.messages.length === 2 && !conversation.title) { 
+      try {
+        const { title } = await generateConversationTitle({
+            messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
+        });
+        await updateConversationTitleInDb(conversationId, title);
+      } catch (e) {
+        console.error("[ACTION] Failed to generate title:", e);
+      }
     }
   }
   
@@ -127,7 +135,12 @@ export async function updateConversationContextAction(
   conversationId: string,
   agentId: AgentId,
   clientContext: string | null,
+  isTestMode: boolean,
 ) {
+    if (isTestMode) {
+      console.log(`[ACTION - updateConversationContextAction] Test mode: Context change for ${conversationId} handled on client.`);
+      return;
+    }
     await updateConversationInDb(conversationId, { agentId, clientContext });
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import type { Agent, AgentId, Conversation } from '@/lib/types';
+import type { AgentId, Conversation } from '@/lib/types';
 import ChatMessages from './chat-messages';
 import ChatInput from './chat-input';
 import { AGENTS, CLIENTS } from '@/lib/data';
@@ -13,11 +13,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Bot, Briefcase } from 'lucide-react';
-import React from 'react';
+import React, { useState } from 'react';
 
 interface ChatInterfaceProps {
   conversation: Conversation | undefined;
-  onSendMessage: (message: string) => void;
+  onSendMessage: (message: string, forConversation: Conversation) => void;
+  onNewConversation: () => Promise<Conversation | undefined>;
   onContextChange: (conversationId: string, agentId: AgentId, clientContext: string | null) => void;
   isLoading: boolean;
 }
@@ -25,6 +26,7 @@ interface ChatInterfaceProps {
 export default function ChatInterface({
   conversation,
   onSendMessage,
+  onNewConversation,
   onContextChange,
   isLoading,
 }: ChatInterfaceProps) {
@@ -32,7 +34,14 @@ export default function ChatInterface({
   
   // This is a guard against rendering without a conversation
   if (!conversation) {
-    return <div className="flex-1 flex items-center justify-center">Selecciona o crea una conversación para empezar.</div>;
+    return (
+        <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+                <h1 className="text-2xl font-bold">Bienvenido</h1>
+                <p className="text-muted-foreground">Crea o selecciona una conversación para empezar.</p>
+            </div>
+        </div>
+    );
   }
 
   const activeAgent = AGENTS.find(a => a.id === conversation.agentId);
@@ -59,6 +68,15 @@ export default function ChatInterface({
     }
   };
 
+  const handleInitialSendMessage = async (message: string) => {
+     // This function is only for the very first message.
+     // It creates a new conversation, then sends the message.
+     const newConversation = await onNewConversation();
+     if (newConversation) {
+        onSendMessage(message, newConversation);
+     }
+  }
+
   const isChatActive = conversation.messages.length > 0;
 
   return (
@@ -83,7 +101,7 @@ export default function ChatInterface({
             {activeAgent?.needsClientContext && (
                 <div className="flex items-center gap-2">
                     <Briefcase className="h-5 w-5 text-muted-foreground" />
-                    <Select value={conversation.clientContext} onValueChange={handleClientChange}>
+                    <Select value={conversation.clientContext ?? ''} onValueChange={handleClientChange}>
                         <SelectTrigger className="w-[200px]">
                             <SelectValue placeholder="Seleccionar Cliente" />
                         </SelectTrigger>
@@ -109,7 +127,7 @@ export default function ChatInterface({
             
             <footer className="p-4 bg-background/80 backdrop-blur-sm sticky bottom-0">
               <ChatInput
-                onSendMessage={onSendMessage}
+                onSendMessage={(msg) => onSendMessage(msg, conversation)}
                 isLoading={isLoading}
                 placeholder={getPlaceholderText()}
                 isExpanded={isChatActive}
@@ -126,7 +144,7 @@ export default function ChatInterface({
             </div>
             <div className="w-full pb-8">
               <ChatInput
-                onSendMessage={onSendMessage}
+                onSendMessage={(msg) => onSendMessage(msg, conversation)}
                 isLoading={isLoading}
                 placeholder={getPlaceholderText()}
                 isExpanded={isChatActive}
