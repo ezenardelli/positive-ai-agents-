@@ -9,18 +9,17 @@ import { suggestParticipants } from '@/ai/flows/suggest-participants';
 import { generateConversationTitle } from '@/ai/flows/generate-conversation-title';
 import type { AgentId, Conversation, Message } from '@/lib/types';
 import { 
-  getConversations,
-  getConversation,
-  addMessage,
+  getConversations as getConversationsFromDb,
+  getConversation as getConversationFromDb,
+  addMessage as addMessageToDb,
   createConversation as createConversationInDb,
-  updateConversationTitle
+  updateConversationTitle as updateConversationTitleInDb
 } from '@/services/firestore-service';
 
 
 export async function getHistoryAction(userId: string, agentId: AgentId): Promise<Conversation[]> {
-  // This action is now only for production. Test mode is handled client-side.
-  console.log('[ACTION - PROD MODE] Getting history from Firestore for user:', userId);
-  const allConversations = await getConversations(userId);
+  console.log('[ACTION] Getting history from Firestore for user:', userId);
+  const allConversations = await getConversationsFromDb(userId);
   return allConversations.filter(c => c.agentId === agentId);
 }
 
@@ -29,7 +28,7 @@ export async function sendMessageAction(
   agentId: AgentId,
   messageContent: string,
   clientContext?: string,
-  isTestMode = false, // We pass the mode from the client
+  isTestMode = false,
 ): Promise<Message> {
   console.log(`[ACTION - sendMessageAction] Mode: ${isTestMode ? 'TEST' : 'PROD'}, Convo ID: ${conversationId}, Agent: ${agentId}`);
   
@@ -40,7 +39,7 @@ export async function sendMessageAction(
       content: messageContent,
       createdAt: new Date(),
     };
-    await addMessage(conversationId, userMessage);
+    await addMessageToDb(conversationId, userMessage);
   }
 
   let responseContent = '';
@@ -67,6 +66,7 @@ export async function sendMessageAction(
         transcript: messageContent,
         pastParticipants: pastParticipants,
         clientId: clientId,
+        isTestMode: isTestMode, // Pass the test mode flag to the flow
       });
       
       responseContent = `### Resumen Ejecutivo\n${result.summary}\n\n### Puntos de Acción\n${result.actionItems.map(item => `* ${item}`).join('\n')}\n\n### Temas Discutidos\n${result.topicsDiscussed.map(item => `* ${item}`).join('\n')}`;
@@ -87,16 +87,16 @@ export async function sendMessageAction(
   modelMessage.content = responseContent;
 
   if (!isTestMode) {
-    await addMessage(conversationId, modelMessage);
+    await addMessageToDb(conversationId, modelMessage);
 
-    const conversation = await getConversation(conversationId);
+    const conversation = await getConversationFromDb(conversationId);
     // Title generation only on the second message (first user, first model)
     if (conversation && conversation.messages.length === 2) { 
       try {
         const { title } = await generateConversationTitle({
             messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
         });
-        await updateConversationTitle(conversationId, title);
+        await updateConversationTitleInDb(conversationId, title);
       } catch (e) {
         console.error("Failed to generate title in production:", e);
       }
@@ -112,7 +112,6 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-   // This action is now only for production. Test mode is handled client-side.
-  console.log('[ACTION - PROD MODE] Creating new conversation in Firestore for user:', userId);
+  console.log('[ACTION] Creating new conversation in Firestore for user:', userId);
   return await createConversationInDb(userId, agentId, clientContext);
 }

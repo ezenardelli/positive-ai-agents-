@@ -20,6 +20,7 @@ const GenerateMeetingMinutesInputSchema = z.object({
   pastParticipants: z.array(z.string()).describe('Participantes anteriores en reuniones similares.'),
   clientId: z.string().describe('The ID of the client.'),
   sourceDocumentUrl: z.string().optional().describe('URL of the source document (if available).'),
+  isTestMode: z.boolean().optional().describe('Flag to indicate if running in test mode to avoid DB operations.'),
 });
 export type GenerateMeetingMinutesInput = z.infer<typeof GenerateMeetingMinutesInputSchema>;
 
@@ -65,12 +66,17 @@ const generateMeetingMinutesFlow = ai.defineFlow(
   async input => {
     const {output} = await generateMeetingMinutesPrompt(input);
 
-    // Save the generated minute to Firestore
-    await saveMinute(
-      input.clientId,
-      input.sourceDocumentUrl,
-      output!
-    );
+    // Save the generated minute to Firestore ONLY if not in test mode
+    if (!input.isTestMode) {
+      await saveMinute(
+        input.clientId,
+        input.sourceDocumentUrl,
+        output!
+      );
+    } else {
+        console.log('[generateMeetingMinutesFlow - TEST MODE] Skipping Firestore save.');
+    }
+
 
     return output!;
   }
