@@ -2,17 +2,19 @@
 
 import type { Agent, Conversation } from '@/lib/types';
 import ClientSelector from './client-selector';
-import { Bot } from 'lucide-react';
+import { Bot, PlusCircle } from 'lucide-react';
 import ChatMessages from './chat-messages';
 import ChatInput from './chat-input';
 import { useState } from 'react';
 import { CLIENTS } from '@/lib/data';
+import { Button } from '@/components/ui/button';
 
 interface ChatInterfaceProps {
   agent: Agent;
   conversation: Conversation | undefined;
   onSendMessage: (message: string, clientContext?: string) => void;
   isLoading: boolean;
+  onNewConversation: () => void;
 }
 
 export default function ChatInterface({
@@ -20,6 +22,7 @@ export default function ChatInterface({
   conversation,
   onSendMessage,
   isLoading,
+  onNewConversation,
 }: ChatInterfaceProps) {
   const [selectedClient, setSelectedClient] = useState<string | undefined>(
     conversation?.clientContext || (agent.needsClientContext ? CLIENTS[0].id : undefined)
@@ -48,9 +51,13 @@ export default function ChatInterface({
             <h2 className="text-2xl font-semibold font-headline">
               {agent.name}
             </h2>
-            <p className="max-w-md">
+            <p className="max-w-md mb-4">
               Inicia una nueva conversación o selecciona una del historial para comenzar.
             </p>
+            <Button onClick={onNewConversation} disabled={isLoading}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Nueva Conversación
+            </Button>
           </div>
         )}
       </div>

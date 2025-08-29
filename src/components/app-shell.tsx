@@ -18,7 +18,6 @@ import {
 import ChatInterface from './chat/chat-interface';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
@@ -27,8 +26,7 @@ const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout } = useAuth();
-  const router = useRouter();
-
+  
   const [agents] = useState<Agent[]>(AGENTS);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<AgentId>('minutaMaker');
@@ -38,17 +36,11 @@ export default function AppShell() {
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    // In test mode, we bypass the auth check. The user is always available.
-    if (!isTestMode && !authLoading && !user) {
-      router.replace('/login');
-    }
-  }, [user, authLoading, router]);
-
   const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
     if (!user) return;
     
     startTransition(async () => {
+      setIsLoading(true);
       try {
         const activeAgent = agents.find(a => a.id === agentIdToCreate);
         let clientContext: string | undefined;
@@ -68,6 +60,8 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo crear una nueva conversación.',
         });
+      } finally {
+        setIsLoading(false);
       }
     });
   };
@@ -82,7 +76,7 @@ export default function AppShell() {
         if (agentConversations.length > 0) {
           setActiveConversationId(agentConversations[0].id);
         } else {
-          handleCreateNewConversation(activeAgentId);
+          // Do not create a new conversation automatically, wait for user action
         }
       }).catch(err => {
         console.error("Failed to load history:", err);
@@ -138,8 +132,15 @@ export default function AppShell() {
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
+               // Replace the optimistic message with the final one from the server action if needed, or just add the new one.
                const newMessages = c.messages.filter(m => m !== optimisticMessage);
-               return { ...c, messages: [...newMessages, optimisticMessage, responseMessage] };
+               newMessages.push(optimisticMessage, responseMessage);
+               // Also update the title if it's a new conversation
+                if (c.title === 'Nueva Conversación') {
+                    const updatedTitle = message.substring(0, 20) + '...';
+                    return { ...c, messages: newMessages, title: updatedTitle };
+                }
+               return { ...c, messages: newMessages };
             }
             return c;
           })
@@ -151,7 +152,7 @@ export default function AppShell() {
           setActiveConversationId(activeConversationId);
         } else {
             setConversations(prev => prev.map(c => {
-                if (c.id === activeConversationId && c.title === 'Nueva Conversación') { 
+                if (c.id === activeConversationId && c.title === 'Nueva Conversación') {
                     return {...c, title: `Conversación de prueba`}
                 }
                 return c;
@@ -173,9 +174,8 @@ export default function AppShell() {
       }
     });
   };
-
-  // In test mode, we can show the UI shell immediately while auth is "loading" in the background
-  if (authLoading && !isTestMode) {
+  
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -206,6 +206,7 @@ export default function AppShell() {
           conversation={activeConversation}
           onSendMessage={handleSendMessage}
           isLoading={isPending || isLoading}
+          onNewConversation={() => handleCreateNewConversation(activeAgentId)}
         />
       </SidebarInset>
     </SidebarProvider>

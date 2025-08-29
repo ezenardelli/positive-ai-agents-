@@ -28,12 +28,14 @@ const mockUser: User = {
 
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(isTestMode ? mockUser : null);
-  const [loading, setLoading] = useState(!isTestMode);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
     if (isTestMode) {
+      setUser(mockUser);
+      setLoading(false);
       return;
     }
 
@@ -42,12 +44,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(user);
       } else {
         setUser(null);
+        router.replace('/login');
       }
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
   const login = async () => {
     if (isTestMode) {
