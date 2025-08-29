@@ -8,12 +8,12 @@ import {
 } from '@/components/ui/sidebar';
 import SidebarContentComponent from '@/components/sidebar-content';
 import { useEffect, useState, useTransition } from 'react';
-import type { Agent, AgentId, Conversation, Message } from '@/lib/types';
-import { AGENTS, CLIENTS } from '@/lib/data';
+import type { AgentId, Conversation, Message } from '@/lib/types';
 import {
   createConversationAction,
   getHistoryAction,
   sendMessageAction,
+  updateConversationContextAction
 } from '@/app/actions';
 import ChatInterface from './chat/chat-interface';
 import { useToast } from '@/hooks/use-toast';
@@ -28,24 +28,22 @@ import { generateMeetingMinutes } from '@/ai/flows/generate-meeting-minutes';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = true;
+const FORCE_TEST_MODE = false;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
   
-  const [agents] = useState<Agent[]>(AGENTS);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeAgentId, setActiveAgentId] = useState<AgentId>('minutaMaker');
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isUiLoading, setIsUiLoading] = useState(true);
   const [isSendingMessage, startSendMessageTransition] = useTransition();
 
   const { toast } = useToast();
 
-  const handleCreateNewConversation = async (clientContext?: string): Promise<Conversation | void> => {
+  const handleCreateNewConversation = async (): Promise<void> => {
     if (!user) return;
     
-    let newConversation: Conversation | undefined;
+    let newConversation: Conversation;
     
     try {
         if (FORCE_TEST_MODE) {
@@ -53,24 +51,24 @@ export default function AppShell() {
             newConversation = {
                 id: `mock_convo_${Date.now()}`,
                 userId: user.uid,
-                agentId: activeAgentId,
-                clientContext: clientContext || (AGENTS.find(a => a.id === activeAgentId)?.needsClientContext ? CLIENTS[0].id : undefined),
+                agentId: 'posiAgent',
+                clientContext: undefined,
                 messages: [],
-                title: 'Nueva Conversación (Test)',
+                title: 'Nueva Conversión',
                 createdAt: new Date(),
             };
         } else {
-            console.log(`[AppShell] Creating new conversation for user ${user.uid} with agent ${activeAgentId}`);
-            const createdConvo = await createConversationAction(user.uid, activeAgentId, clientContext);
+            console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
+            // New conversations always start with posiAgent by default
+            const createdConvo = await createConversationAction(user.uid, 'posiAgent');
             newConversation = {
                 ...createdConvo,
                 createdAt: new Date(createdConvo.createdAt),
                 messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
             };
         }
-        setConversations(prev => [newConversation!, ...prev]);
-        setActiveConversationId(newConversation!.id);
-        return newConversation; // Return the created conversation
+        setConversations(prev => [newConversation, ...prev]);
+        setActiveConversationId(newConversation.id);
       } catch (error) {
           console.error('Failed to create new conversation:', error);
           toast({
@@ -98,11 +96,12 @@ export default function AppShell() {
         console.log("[AppShell Test Mode] Skipping history fetch, starting fresh.");
         setConversations([]);
         setActiveConversationId(null);
+        handleCreateNewConversation();
         setIsUiLoading(false);
         return;
     }
 
-    getHistoryAction(user.uid, activeAgentId)
+    getHistoryAction(user.uid)
       .then(history => {
         const historyWithDates = history.map(c => ({
             ...c,
@@ -114,7 +113,8 @@ export default function AppShell() {
         if (historyWithDates.length > 0) {
           setActiveConversationId(historyWithDates[0].id);
         } else {
-          setActiveConversationId(null);
+          // If no history, create the first conversation automatically
+          handleCreateNewConversation();
         }
       })
       .catch(err => {
@@ -128,27 +128,17 @@ export default function AppShell() {
       .finally(() => {
           setIsUiLoading(false);
       });
-  }, [user, authLoading, activeAgentId]);
+  }, [user, authLoading]);
 
-
-  const activeAgent = agents.find(a => a.id === activeAgentId)!;
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
 
-  const handleSelectAgent = (agentId: AgentId) => {
-    if (agentId !== activeAgentId) {
-      setActiveConversationId(null);
-      setConversations([]);
-      setIsUiLoading(true); 
-      setActiveAgentId(agentId);
-    }
-  };
-
   const handleSendMessage = (message: string) => {
-    if (!activeConversationId || !user) return;
+    if (!activeConversationId || !user || !activeConversation) return;
 
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
     
+    // Optimistic UI update for the user's message
     setConversations(prev =>
         prev.map(c =>
             c.id === activeConversationId
@@ -162,52 +152,46 @@ export default function AppShell() {
         let modelResponse: Message;
 
         if(FORCE_TEST_MODE) {
-          console.log("[AppShell Test Mode] Sending message in test mode (client-side flow)");
-          const result = await generateMeetingMinutes({
-            transcript: message,
-            pastParticipants: [],
-            isTestMode: true,
-          });
+          console.log("[AppShell Test Mode] Simulating sending message with agent:", activeConversation.agentId);
+          let responseContent = '';
+          if (activeConversation.agentId === 'minutaMaker') {
+            const result = await generateMeetingMinutes({
+              transcript: message,
+              pastParticipants: [],
+              isTestMode: true,
+            });
+            responseContent = result.fullGeneratedText;
+          } else {
+            responseContent = `Respuesta simulada para Posi Agent sobre: "${message}"`;
+          }
+          
           modelResponse = {
             id: `model-response-${Date.now()}`,
             role: 'model',
-            content: result.fullGeneratedText,
+            content: responseContent,
             createdAt: new Date(),
           };
-           // In test mode, we manually update the conversation state with the real user message and model response.
-           setConversations(prev =>
-                prev.map(c => {
-                    if (c.id === activeConversationId) {
-                        // Replace optimistic message with a final one and add model response.
-                        const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
-                        finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, modelResponse);
-                        return { ...c, messages: finalMessages };
-                    }
-                    return c;
-                })
-            );
-
+          
         } else {
           // Production mode logic
           modelResponse = await sendMessageAction(
             activeConversationId,
-            activeAgentId,
+            activeConversation.agentId,
             message,
-            activeConversation?.clientContext
+            activeConversation.clientContext
           );
-           // In production, the state is updated based on the response from the server action which already handled DB writes.
-            setConversations(prev =>
-                prev.map(c => {
-                    if (c.id === activeConversationId) {
-                       const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
-                       // The server action only returns the model's message. We assume the user message was saved.
-                       finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, {...modelResponse, createdAt: new Date(modelResponse.createdAt)});
-                       return { ...c, messages: finalMessages };
-                    }
-                    return c;
-                })
-            );
         }
+         // Final state update with model's response
+         setConversations(prev =>
+              prev.map(c => {
+                  if (c.id === activeConversationId) {
+                      const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
+                      finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, {...modelResponse, createdAt: new Date(modelResponse.createdAt)});
+                      return { ...c, messages: finalMessages };
+                  }
+                  return c;
+              })
+          );
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -224,6 +208,29 @@ export default function AppShell() {
       }
     });
   };
+
+  const handleContextChange = (conversationId: string, newAgentId: AgentId, newClientContext: string | null) => {
+    // Update the local state optimistically
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === conversationId ? { ...c, agentId: newAgentId, clientContext: newClientContext || undefined } : c
+      )
+    );
+
+    // If not in test mode, persist the change to the backend
+    if (!FORCE_TEST_MODE) {
+      updateConversationContextAction(conversationId, newAgentId, newClientContext)
+        .catch(err => {
+          console.error("Failed to update context in DB:", err);
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'No se pudo guardar el cambio de contexto.',
+          });
+          // NOTE: Could add rollback logic here if needed
+        });
+    }
+  };
   
   if (authLoading) {
     return (
@@ -238,7 +245,6 @@ export default function AppShell() {
   }
 
   const isProcessing = isUiLoading || isSendingMessage;
-  const activeClientContext = activeConversation?.clientContext || (activeAgent.needsClientContext ? CLIENTS[0].id : undefined);
 
   return (
     <SidebarProvider>
@@ -246,31 +252,27 @@ export default function AppShell() {
           {user && (
             <SidebarContentComponent
               user={user}
-              agents={agents}
-              conversations={conversations.filter(c => c.agentId === activeAgentId)}
-              activeAgentId={activeAgentId}
+              conversations={conversations}
               activeConversationId={activeConversationId}
-              onSelectAgent={handleSelectAgent}
               onSelectConversation={setActiveConversationId}
-              onNewConversation={() => handleCreateNewConversation(activeClientContext)}
+              onNewConversation={handleCreateNewConversation}
               onLogout={logout}
               isLoading={isUiLoading}
             />
           )}
       </Sidebar>
-      <SidebarInset className="flex flex-col h-screen p-0 bg-card rounded-lg border-0 shadow-none">
-        {isUiLoading && !activeConversation && conversations.length === 0 && !FORCE_TEST_MODE ? (
+      <SidebarInset className="flex flex-col h-screen p-0 bg-background shadow-none border-0">
+        {isUiLoading && !activeConversation ? (
            <div className="flex items-center justify-center h-full">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
            </div>
         ) : (
             <ChatInterface
-              key={activeConversationId || 'new'}
-              agent={activeAgent}
+              key={activeConversationId} // Re-mount when conversation changes
               conversation={activeConversation}
               onSendMessage={handleSendMessage}
+              onContextChange={handleContextChange}
               isLoading={isProcessing}
-              onNewConversation={handleCreateNewConversation}
             />
         )}
       </SidebarInset>

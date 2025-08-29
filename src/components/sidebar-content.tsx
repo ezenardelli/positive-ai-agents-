@@ -13,11 +13,11 @@ import {
   SidebarMenuSkeleton,
 } from '@/components/ui/sidebar';
 import { Logo } from './icons';
-import type { Agent, AgentId, Conversation } from '@/lib/types';
+import type { AgentId, Conversation } from '@/lib/types';
 import type { User } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
-import { BotMessageSquare, History, LogOut, MessageSquare, Plus } from 'lucide-react';
+import { History, LogOut, MessageSquare, Plus, Bot, Briefcase } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { format, isToday, isYesterday } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -29,14 +29,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { AGENTS } from '@/lib/data';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+
 
 interface SidebarContentComponentProps {
   user: User;
-  agents: Agent[];
   conversations: Conversation[];
-  activeAgentId: AgentId;
   activeConversationId: string | null;
-  onSelectAgent: (agentId: AgentId) => void;
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   onLogout: () => void;
@@ -45,11 +46,8 @@ interface SidebarContentComponentProps {
 
 export default function SidebarContentComponent({
   user,
-  agents,
   conversations,
-  activeAgentId,
   activeConversationId,
-  onSelectAgent,
   onSelectConversation,
   onNewConversation,
   onLogout,
@@ -78,9 +76,11 @@ export default function SidebarContentComponent({
 
   const groupedConversations = groupConversationsByDate(conversations);
 
+  const getAgentById = (id: AgentId) => AGENTS.find(a => a.id === id);
+
   return (
     <>
-      <SidebarHeader>
+      <SidebarHeader className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Logo />
           <div className="flex flex-col">
@@ -88,50 +88,27 @@ export default function SidebarContentComponent({
             <span className="text-xs text-sidebar-foreground/70">Agent Hub</span>
           </div>
         </div>
+        <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onNewConversation}
+            disabled={isLoading}
+            >
+            <Plus className="size-4" />
+            <span className="sr-only">Nueva conversación</span>
+        </Button>
       </SidebarHeader>
 
       <SidebarContent>
-        <ScrollArea className="h-full">
+        <ScrollArea className="h-full px-3">
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center gap-2">
-              <BotMessageSquare className="size-4" />
-              Agentes
+              <History className="size-4" />
+              Historial
             </SidebarGroupLabel>
-            <SidebarMenu>
-              {agents.map(agent => (
-                <SidebarMenuItem key={agent.id}>
-                  <SidebarMenuButton
-                    onClick={() => onSelectAgent(agent.id)}
-                    isActive={activeAgentId === agent.id}
-                  >
-                    <span>{agent.name}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-
-          <SidebarSeparator />
-
-          <SidebarGroup>
-            <div className="flex items-center justify-between mb-2 px-2">
-              <SidebarGroupLabel className="flex items-center gap-2 p-0 h-auto">
-                <History className="size-4" />
-                Historial
-              </SidebarGroupLabel>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={onNewConversation}
-                disabled={isLoading}
-              >
-                <Plus className="size-4" />
-                <span className="sr-only">Nueva conversación</span>
-              </Button>
-            </div>
             {isLoading ? (
-              <div className="flex flex-col gap-2 px-2">
+              <div className="flex flex-col gap-2">
                 <SidebarMenuSkeleton showIcon />
                 <SidebarMenuSkeleton showIcon />
                 <SidebarMenuSkeleton showIcon />
@@ -141,21 +118,40 @@ export default function SidebarContentComponent({
               {Object.entries(groupedConversations).map(([date, convos]) => (
                 <div key={date} className="mt-2">
                   <p className="px-2 text-xs text-sidebar-foreground/60 mb-1">{date}</p>
-                  {convos.map(convo => (
-                    <SidebarMenuItem key={convo.id}>
-                      <SidebarMenuButton
-                        onClick={() => onSelectConversation(convo.id)}
-                        isActive={activeConversationId === convo.id}
-                      >
-                         <MessageSquare />
-                        <span>{convo.title}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  {convos.map(convo => {
+                    const agent = getAgentById(convo.agentId);
+                    return (
+                        <SidebarMenuItem key={convo.id}>
+                            <SidebarMenuButton
+                                onClick={() => onSelectConversation(convo.id)}
+                                isActive={activeConversationId === convo.id}
+                                className="h-auto py-2 flex-col items-start"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <MessageSquare className="size-4" />
+                                    <span className="truncate flex-1">{convo.title || "Nueva Conversación"}</span>
+                                </div>
+                                {agent && (
+                                     <div className="flex items-center gap-2 pl-6 text-xs text-sidebar-foreground/70">
+                                        <Bot className="size-3" />
+                                        <span>{agent.name}</span>
+                                        {convo.clientContext && (
+                                            <>
+                                                <span className="mx-1">|</span>
+                                                <Briefcase className="size-3" />
+                                                <span>{convo.clientContext}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    );
+                  })}
                 </div>
               ))}
                  {conversations.length === 0 && !isLoading && (
-                    <p className="px-2 text-xs text-sidebar-foreground/60">No hay conversaciones.</p>
+                    <p className="px-2 text-sm text-center text-sidebar-foreground/60 mt-4">Crea tu primera conversación para empezar.</p>
                 )}
             </SidebarMenu>
             )}

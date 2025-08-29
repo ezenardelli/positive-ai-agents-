@@ -1,112 +1,139 @@
 'use client';
 
-import type { Agent, Conversation } from '@/lib/types';
-import ClientSelector from './client-selector';
+import type { Agent, AgentId, Conversation } from '@/lib/types';
 import ChatMessages from './chat-messages';
 import ChatInput from './chat-input';
-import { useState } from 'react';
-import { CLIENTS } from '@/lib/data';
+import { AGENTS, CLIENTS } from '@/lib/data';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Bot, Briefcase } from 'lucide-react';
+import React from 'react';
 
 interface ChatInterfaceProps {
-  agent: Agent;
   conversation: Conversation | undefined;
   onSendMessage: (message: string) => void;
+  onContextChange: (conversationId: string, agentId: AgentId, clientContext: string | null) => void;
   isLoading: boolean;
-  onNewConversation: (clientContext?: string) => Promise<Conversation | void>;
 }
 
 export default function ChatInterface({
-  agent,
   conversation,
   onSendMessage,
+  onContextChange,
   isLoading,
-  onNewConversation,
 }: ChatInterfaceProps) {
-  const [selectedClient, setSelectedClient] = useState<string | undefined>(
-    conversation?.clientContext || (agent.needsClientContext ? CLIENTS[0].id : undefined)
-  );
   const { user } = useAuth();
+  
+  // This is a guard against rendering without a conversation
+  if (!conversation) {
+    return <div className="flex-1 flex items-center justify-center">Selecciona o crea una conversación para empezar.</div>;
+  }
 
-  const handleSendMessage = async (message: string) => {
-    let currentConversation = conversation;
-    // If there's no active conversation, create one first.
-    if (!currentConversation) {
-      const newConvo = await onNewConversation(selectedClient);
-      if (newConvo) {
-        currentConversation = newConvo;
-      } else {
-        console.error("Failed to create a new conversation.");
-        return; // Exit if conversation creation fails
-      }
-    }
-    // Now, with a guaranteed conversation, send the message.
-    onSendMessage(message);
+  const activeAgent = AGENTS.find(a => a.id === conversation.agentId);
+
+  const handleAgentChange = (newAgentId: AgentId) => {
+    const newAgent = AGENTS.find(a => a.id === newAgentId)!;
+    // If the new agent doesn't need a client context, clear it.
+    const newClientContext = newAgent.needsClientContext ? conversation.clientContext : null;
+    onContextChange(conversation.id, newAgentId, newClientContext);
   };
 
+  const handleClientChange = (newClientId: string) => {
+    onContextChange(conversation.id, conversation.agentId, newClientId);
+  };
+  
   const getPlaceholderText = () => {
-    switch (agent.id) {
+    switch (activeAgent?.id) {
       case 'minutaMaker':
-        return 'Pega aquí la transcripción o adjunta un archivo .docx para empezar...';
+        return 'Pega la transcripción, adjunta un DOCX o pide un resumen...';
       case 'posiAgent':
-        return '¿En qué puedo ayudarte hoy?';
+        return `¿En qué puedo ayudarte sobre Positive IT, ${user?.displayName?.split(' ')[0]}?`;
       default:
         return 'Escribe tu mensaje...';
     }
   };
 
-  const isChatActive = conversation && conversation.messages.length > 0;
+  const isChatActive = conversation.messages.length > 0;
 
   return (
-    <div className="flex flex-col h-full">
-      {isChatActive ? (
-        <>
-          <header className="flex items-center justify-between p-4 border-b bg-card">
-            <div>
-              <h1 className="text-xl font-bold text-foreground font-headline">{agent.name}</h1>
-              <p className="text-sm text-muted-foreground">{agent.description}</p>
+    <div className="flex flex-col h-full bg-card">
+        {/* Context Zone Header */}
+        <header className="flex items-center gap-4 p-4 border-b">
+             <div className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-muted-foreground" />
+                <Select value={conversation.agentId} onValueChange={handleAgentChange}>
+                    <SelectTrigger className="w-[200px] text-base font-semibold">
+                        <SelectValue placeholder="Seleccionar Agente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {AGENTS.map(agent => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                            {agent.name}
+                        </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
-            {agent.needsClientContext && (
-              <ClientSelector 
-                selectedClient={selectedClient} 
-                onClientChange={setSelectedClient} 
-              />
+            {activeAgent?.needsClientContext && (
+                <div className="flex items-center gap-2">
+                    <Briefcase className="h-5 w-5 text-muted-foreground" />
+                    <Select value={conversation.clientContext} onValueChange={handleClientChange}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="Seleccionar Cliente" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {CLIENTS.map(client => (
+                            <SelectItem key={client.id} value={client.id}>
+                                {client.name}
+                            </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
             )}
-          </header>
+        </header>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="max-w-3xl mx-auto p-4">
-              <ChatMessages messages={conversation.messages} />
+        {isChatActive ? (
+          <>
+            <div className="flex-1 overflow-y-auto">
+              <div className="max-w-3xl mx-auto p-4">
+                <ChatMessages messages={conversation.messages} />
+              </div>
+            </div>
+            
+            <footer className="p-4 bg-background/80 backdrop-blur-sm sticky bottom-0">
+              <ChatInput
+                onSendMessage={onSendMessage}
+                isLoading={isLoading}
+                placeholder={getPlaceholderText()}
+                isExpanded={isChatActive}
+              />
+            </footer>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center p-4">
+            <div className="flex flex-col items-center justify-center flex-1">
+              <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+                Hola, {user?.displayName?.split(' ')[0] || 'Eze'}.
+              </h1>
+              <p className="text-lg text-muted-foreground">Define el contexto arriba y empecemos a trabajar.</p>
+            </div>
+            <div className="w-full pb-8">
+              <ChatInput
+                onSendMessage={onSendMessage}
+                isLoading={isLoading}
+                placeholder={getPlaceholderText()}
+                isExpanded={isChatActive}
+              />
             </div>
           </div>
-          
-          <footer className="p-4 bg-background/80 backdrop-blur-sm sticky bottom-0">
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              isLoading={isLoading}
-              placeholder={getPlaceholderText()}
-              isExpanded={isChatActive}
-            />
-          </footer>
-        </>
-      ) : (
-        <div className="flex flex-col items-center justify-center h-full text-center p-4">
-          <div className="flex flex-col items-center justify-center flex-1">
-            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
-              Hola, {user?.displayName?.split(' ')[0] || 'Eze'}.
-            </h1>
-            <p className="text-lg text-muted-foreground">¿Todo listo para empezar?</p>
-          </div>
-          <div className="w-full pb-8">
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              isLoading={isLoading}
-              placeholder={getPlaceholderText()}
-              isExpanded={isChatActive}
-            />
-          </div>
-        </div>
-      )}
+        )}
     </div>
   );
 }

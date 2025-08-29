@@ -14,6 +14,7 @@ import {
   getConversation as getConversationFromDb,
   addMessage as addMessageToDb,
   createConversation as createConversationInDb,
+  updateConversation as updateConversationInDb,
   updateConversationTitle as updateConversationTitleInDb,
   saveMinute
 } from '@/services/firestore-service';
@@ -21,11 +22,10 @@ import { processDocx } from '@/ai/flows/process-docx-flow';
 
 export async function getHistoryAction(
   userId: string,
-  agentId: AgentId,
 ): Promise<Conversation[]> {
-  console.log(`[ACTION] Getting history from Firestore for user: ${userId} and agent: ${agentId}`);
+  console.log(`[ACTION] Getting all history from Firestore for user: ${userId}`);
   const allConversations = await getConversationsFromDb(userId);
-  return allConversations.filter(c => c.agentId === agentId);
+  return allConversations;
 }
 
 export async function sendMessageAction(
@@ -59,7 +59,10 @@ export async function sendMessageAction(
     }
 
     if (agentId === 'minutaMaker') {
-      const clientId = clientContext || 'mock-client';
+       if (!clientContext) {
+        throw new Error("Se requiere un cliente para el agente Minuta Maker.");
+      }
+      const clientId = clientContext;
       const pastParticipants = (await suggestParticipants({ clientId })).suggestedParticipants;
       
       const genInput: GenerateMeetingMinutesInput = {
@@ -76,7 +79,8 @@ export async function sendMessageAction(
       await saveMinute(clientId, undefined, { ...result, transcript: messageContent });
 
     } else if (agentId === 'posiAgent') {
-      responseContent = 'Posi Agent coming soon!';
+      // Dummy response for now
+      responseContent = `Claro, aquí tienes información sobre Positive IT. Somos una empresa líder en soluciones tecnológicas... (Respuesta simulada para Posi Agent).`;
     } else {
       responseContent = 'Error: Agente no encontrado.';
     }
@@ -95,7 +99,7 @@ export async function sendMessageAction(
 
   const conversation = await getConversationFromDb(conversationId);
   // Title generation only on the second message (first user, first model)
-  if (conversation && conversation.messages.length === 2) { 
+  if (conversation && conversation.messages.length === 2 && !conversation.title) { 
     try {
       const { title } = await generateConversationTitle({
           messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
@@ -109,14 +113,24 @@ export async function sendMessageAction(
   return modelMessage;
 }
 
+
 export async function createConversationAction(
   userId: string,
-  agentId: AgentId,
-  clientContext?: string,
+  initialAgentId: AgentId,
 ): Promise<Conversation> {
   console.log(`[ACTION - createConversationAction] Creating new conversation for user: ${userId}`);
-  return await createConversationInDb(userId, agentId, clientContext);
+  return await createConversationInDb(userId, initialAgentId);
 }
+
+
+export async function updateConversationContextAction(
+  conversationId: string,
+  agentId: AgentId,
+  clientContext: string | null,
+) {
+    await updateConversationInDb(conversationId, { agentId, clientContext });
+}
+
 
 export async function processFileAction(fileDataUri: string): Promise<{ success: boolean; text?: string; error?: string }> {
     try {

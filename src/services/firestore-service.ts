@@ -15,7 +15,8 @@ import {
   getDoc,
   updateDoc,
   Timestamp,
-  arrayUnion
+  arrayUnion,
+  serverTimestamp
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { GenerateMeetingMinutesOutput } from '@/ai/flows/generate-meeting-minutes';
@@ -81,6 +82,7 @@ const conversationFromDoc = (docSnapshot: any): Conversation => {
             ...msg,
             createdAt: (msg.createdAt as Timestamp).toDate(),
         })),
+        title: data.title || null,
     };
 }
 
@@ -120,15 +122,14 @@ export async function getConversation(conversationId: string): Promise<Conversat
  * Creates a new conversation in Firestore.
  * This will implicitly create the 'conversations' collection if it doesn't exist.
  */
-export async function createConversation(userId: string, agentId: AgentId, clientContext?: string): Promise<Conversation> {
+export async function createConversation(userId: string, agentId: AgentId): Promise<Conversation> {
     const newConvoData = {
         userId,
         agentId,
-        // Ensure clientContext is null, not undefined, for Firestore.
-        clientContext: clientContext || null,
-        title: 'Nueva Conversación',
+        clientContext: null,
+        title: null, // Title is generated after the first exchange
         messages: [],
-        createdAt: Timestamp.now(),
+        createdAt: serverTimestamp(),
     };
     try {
         const docRef = await addDoc(collection(db, 'conversations'), newConvoData);
@@ -162,4 +163,16 @@ export async function addMessage(conversationId: string, message: Message): Prom
 export async function updateConversationTitle(conversationId: string, title: string): Promise<void> {
     const convoRef = doc(db, 'conversations', conversationId);
     await updateDoc(convoRef, { title });
+}
+
+
+/**
+ * Updates a conversation's context.
+ */
+export async function updateConversation(conversationId: string, data: Partial<Conversation>): Promise<void> {
+    const convoRef = doc(db, 'conversations', conversationId);
+    await updateDoc(convoRef, {
+        agentId: data.agentId,
+        clientContext: data.clientContext,
+    });
 }

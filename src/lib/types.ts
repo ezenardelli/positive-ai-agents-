@@ -22,6 +22,6 @@ export type Conversation = {
   agentId: AgentId;
   clientContext?: string;
   messages: Message[];
-  title: string;
+  title: string | null;
   createdAt: Date;
 };
