@@ -16,7 +16,7 @@ type AuthContextType = {
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 // Check if Firebase environment variables are set. If not, run in test mode.
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
 // Create a mock user for testing purposes.
 const mockUser: User = {
@@ -30,12 +30,16 @@ const mockUser: User = {
 
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(isTestMode ? mockUser : null);
-  const [loading, setLoading] = useState(!isTestMode);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    if (isTestMode) return;
+    if (isTestMode) {
+      setUser(mockUser);
+      setLoading(false);
+      return;
+    }
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
