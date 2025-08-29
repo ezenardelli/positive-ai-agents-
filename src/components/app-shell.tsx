@@ -42,34 +42,35 @@ export default function AppShell() {
 
   const { toast } = useToast();
 
-  const handleCreateNewConversation = (agentIdToCreate: AgentId, clientContext?: string) => {
+  const handleCreateNewConversation = async (clientContext?: string) => {
     if (!user) return;
     
-    startSendMessageTransition(async () => {
-      try {
-        let newConversation: Conversation;
+    let newConversation: Conversation | undefined;
+    
+    try {
         if (FORCE_TEST_MODE) {
             console.log("[AppShell] Creating new MOCK conversation (Client-side)");
             newConversation = {
                 id: `mock_convo_${Date.now()}`,
                 userId: user.uid,
-                agentId: agentIdToCreate,
+                agentId: activeAgentId,
                 clientContext: clientContext,
                 messages: [],
                 title: 'Nueva Conversación (Test)',
                 createdAt: new Date(),
             };
         } else {
-            console.log(`[AppShell] Creating new conversation for user ${user.uid} with agent ${agentIdToCreate}`);
-            const createdConvo = await createConversationAction(user.uid, agentIdToCreate, clientContext);
+            console.log(`[AppShell] Creating new conversation for user ${user.uid} with agent ${activeAgentId}`);
+            const createdConvo = await createConversationAction(user.uid, activeAgentId, clientContext);
             newConversation = {
                 ...createdConvo,
                 createdAt: new Date(createdConvo.createdAt),
                 messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
             };
         }
-        setConversations(prev => [newConversation, ...prev]);
-        setActiveConversationId(newConversation.id);
+        setConversations(prev => [newConversation!, ...prev]);
+        setActiveConversationId(newConversation!.id);
+        return newConversation;
       } catch (error) {
           console.error('Failed to create new conversation:', error);
           toast({
@@ -78,7 +79,6 @@ export default function AppShell() {
               description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
           });
       }
-    });
   };
 
   useEffect(() => {
@@ -182,14 +182,20 @@ export default function AppShell() {
             activeConversation?.clientContext
           );
         }
-
+        
+        // After getting the real response, update the conversation state
         setConversations(prev =>
-          prev.map(c =>
-            c.id === activeConversationId
-              ? { ...c, messages: [...c.messages.filter(m => m.id !== optimisticUserMessage.id), optimisticUserMessage, modelResponse] }
-              : c
-          )
+          prev.map(c => {
+            if (c.id === activeConversationId) {
+              // Replace optimistic message with the final one and add model response
+              const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
+              finalMessages.push(optimisticUserMessage, modelResponse);
+              return { ...c, messages: finalMessages };
+            }
+            return c;
+          })
         );
+
 
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -235,25 +241,25 @@ export default function AppShell() {
               activeConversationId={activeConversationId}
               onSelectAgent={handleSelectAgent}
               onSelectConversation={setActiveConversationId}
-              onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
+              onNewConversation={() => handleCreateNewConversation(activeClientContext)}
               onLogout={logout}
               isLoading={isUiLoading}
             />
           )}
       </Sidebar>
-      <SidebarInset className="flex flex-col h-screen p-2">
+      <SidebarInset className="flex flex-col h-screen p-0 bg-card rounded-lg border-0 shadow-none">
         {isUiLoading && !activeConversation && conversations.length === 0 && !FORCE_TEST_MODE ? (
-           <div className="flex items-center justify-center h-full bg-card rounded-lg border">
+           <div className="flex items-center justify-center h-full">
                 <Loader2 className="w-12 h-12 animate-spin text-primary" />
            </div>
         ) : (
             <ChatInterface
-              key={activeConversationId || 'new'} // Re-mount when conversation changes or is new
+              key={activeConversationId || 'new'}
               agent={activeAgent}
               conversation={activeConversation}
               onSendMessage={handleSendMessage}
               isLoading={isProcessing}
-              onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
+              onNewConversation={handleCreateNewConversation}
             />
         )}
       </SidebarInset>

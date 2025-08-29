@@ -137,7 +137,7 @@ export default function ChatInput({
           variant="ghost"
           size="icon"
           className="absolute left-2 top-1/2 -translate-y-1/2 h-9 w-9 text-muted-foreground"
-          onClick={() => fileInput.current?.click()}
+          onClick={() => fileInputRef.current?.click()}
           disabled={isLoading || isUploading}
         >
           {isUploading ? (
