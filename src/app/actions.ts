@@ -16,7 +16,6 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
-// Check if Firebase environment variables are set. If not, run in test mode.
 const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 
@@ -32,15 +31,15 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
   
+  let userMessage: Message;
   if (!isTestMode) {
-      const userMessage: Message = {
+      userMessage = {
         role: 'user',
         content: messageContent,
         createdAt: new Date(),
       };
       await addMessage(conversationId, userMessage);
   }
-
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -106,7 +105,7 @@ export async function createConversationAction(
       userId: 'mock-user',
       agentId,
       clientContext: clientContext || 'mock-client',
-      title: 'Nueva Conversación de Prueba',
+      title: 'Nueva Conversación',
       messages: [],
       createdAt: new Date(),
     };

@@ -15,10 +15,8 @@ type AuthContextType = {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
-// Check if Firebase environment variables are set. If not, run in test mode.
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY || !process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
-// Create a mock user for testing purposes.
 const mockUser: User = {
   uid: 'mock-user-id',
   email: 'test@positiveit.com.ar',
@@ -30,14 +28,12 @@ const mockUser: User = {
 
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(isTestMode ? mockUser : null);
+  const [loading, setLoading] = useState(!isTestMode);
   const router = useRouter();
 
   useEffect(() => {
     if (isTestMode) {
-      setUser(mockUser);
-      setLoading(false);
       return;
     }
 
@@ -55,9 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async () => {
     if (isTestMode) {
-      setUser(mockUser);
-      router.push('/');
-      return;
+       console.log("Login called in test mode, user is already mocked.");
+       return;
     }
     setLoading(true);
     try {
@@ -76,8 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
      if (isTestMode) {
+      console.log("Logout called in test mode.");
       setUser(null);
-      router.push('/login');
+      // In a real test scenario, we might redirect or show a logged-out state,
+      // but for ease of testing, we'll just log it.
       return;
     }
     setLoading(true);

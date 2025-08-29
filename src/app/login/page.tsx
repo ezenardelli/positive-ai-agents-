@@ -1,5 +1,7 @@
 'use client';
 
+// This page is not used in test mode.
+// In production, AppShell will redirect here if the user is not logged in.
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,8 +9,6 @@ import { GoogleIcon, Logo } from '@/components/icons';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -40,10 +40,10 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Button onClick={login} className="w-full" size="lg">
-             {isTestMode ? 'Ingresar (Modo Prueba)' : <> <GoogleIcon className="mr-2 h-5 w-5" /> Ingresar con Google </>}
+            <GoogleIcon className="mr-2 h-5 w-5" /> Ingresar con Google
           </Button>
           <p className="text-xs text-center text-muted-foreground px-4">
-             {isTestMode ? 'Estás en modo de prueba. No se requiere autenticación.' : 'Acceso restringido a empleados de Positive IT (@positiveit.com.ar)'}
+             Acceso restringido a empleados de Positive IT (@positiveit.com.ar)
           </p>
         </CardContent>
       </Card>

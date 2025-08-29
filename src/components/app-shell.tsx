@@ -39,23 +39,23 @@ export default function AppShell() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (!authLoading && !user) {
+    // In test mode, we bypass the auth check. The user is always available.
+    if (!isTestMode && !authLoading && !user) {
       router.replace('/login');
     }
   }, [user, authLoading, router]);
 
- const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
+  const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
     if (!user) return;
     
     startTransition(async () => {
       try {
-        // Find an appropriate client context if needed
         const activeAgent = agents.find(a => a.id === agentIdToCreate);
         let clientContext: string | undefined;
 
         if (activeAgent?.needsClientContext) {
            const existingContext = conversations.find(c => c.agentId === agentIdToCreate)?.clientContext;
-           clientContext = existingContext || 'cliente_A'; // Default to first client if none found
+           clientContext = existingContext || 'cliente_A'; 
         }
         
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
@@ -82,7 +82,6 @@ export default function AppShell() {
         if (agentConversations.length > 0) {
           setActiveConversationId(agentConversations[0].id);
         } else {
-          // If no conversations exist for the active agent, create one.
           handleCreateNewConversation(activeAgentId);
         }
       }).catch(err => {
@@ -119,7 +118,6 @@ export default function AppShell() {
 
     const optimisticMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     
-    // Optimistically update UI
     setConversations(prev =>
         prev.map(c =>
             c.id === activeConversationId
@@ -127,7 +125,6 @@ export default function AppShell() {
                 : c
         )
     );
-
 
     startTransition(async () => {
       try {
@@ -141,31 +138,21 @@ export default function AppShell() {
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-                // Replace optimistic message with final user message from server and add model response
-               const newMessages = [...c.messages];
-               // Find and remove the optimistic message
-               const optimisticIndex = newMessages.findIndex(m => m === optimisticMessage);
-               if (optimisticIndex > -1) {
-                   newMessages.splice(optimisticIndex, 1);
-               }
-               // Add the user message (now confirmed) and the model's response
+               const newMessages = c.messages.filter(m => m !== optimisticMessage);
                return { ...c, messages: [...newMessages, optimisticMessage, responseMessage] };
             }
             return c;
           })
         );
         
-        // After receiving a response, if we are in production, refetch history to get latest title
         if (!isTestMode) {
           const updatedHistory = await getHistoryAction(user.uid);
           setConversations(updatedHistory);
-          // Make sure the active conversation is still selected
           setActiveConversationId(activeConversationId);
         } else {
-             // In test mode, we just add the response and maybe update title locally
             setConversations(prev => prev.map(c => {
-                if (c.id === activeConversationId && c.messages.length <= 2) { // Title for first exchange
-                    return {...c, title: `Conversación sobre "${message.substring(0, 20)}..."`}
+                if (c.id === activeConversationId && c.title === 'Nueva Conversación') { 
+                    return {...c, title: `Conversación de prueba`}
                 }
                 return c;
             }));
@@ -178,7 +165,6 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo enviar el mensaje.',
         });
-        // Rollback optimistic update
         setConversations(prev =>
             prev.map(c =>
                 c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m !== optimisticMessage)} : c
@@ -188,7 +174,8 @@ export default function AppShell() {
     });
   };
 
-  if (authLoading || (!user && !isTestMode)) {
+  // In test mode, we can show the UI shell immediately while auth is "loading" in the background
+  if (authLoading && !isTestMode) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
