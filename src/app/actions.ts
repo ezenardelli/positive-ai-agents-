@@ -16,27 +16,10 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
-// This is the single source of truth for test mode.
-// It's true if the Firebase credentials are NOT set.
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-
-
-// Mock database for test mode
-let mockConversations: Conversation[] = [];
-let conversationIdCounter = 0;
-
 
 export async function getHistoryAction(userId: string, agentId: AgentId): Promise<Conversation[]> {
-  if (isTestMode) {
-    console.log('[ACTION - TEST MODE] Getting history for user:', userId, 'and agent:', agentId);
-    // In test mode, return only conversations for the active agent
-    const agentHistory = mockConversations.filter(c => c.userId === userId && c.agentId === agentId);
-    console.log('[ACTION - TEST MODE] Found history:', agentHistory);
-    // Return a deep copy to avoid mutation issues
-    return Promise.resolve(JSON.parse(JSON.stringify(agentHistory)));
-  }
+  // This action is now only for production. Test mode is handled client-side.
   console.log('[ACTION - PROD MODE] Getting history from Firestore for user:', userId);
-  // In production, fetch from Firestore and then filter
   const allConversations = await getConversations(userId);
   return allConversations.filter(c => c.agentId === agentId);
 }
@@ -45,27 +28,19 @@ export async function sendMessageAction(
   conversationId: string,
   agentId: AgentId,
   messageContent: string,
-  clientContext?: string
+  clientContext?: string,
+  isTestMode = false, // We pass the mode from the client
 ): Promise<Message> {
   console.log(`[ACTION - sendMessageAction] Mode: ${isTestMode ? 'TEST' : 'PROD'}, Convo ID: ${conversationId}, Agent: ${agentId}`);
-  const userMessage: Message = {
-    id: `msg-${Date.now()}`,
-    role: 'user',
-    content: messageContent,
-    createdAt: new Date(),
-  };
-
-  // Persist user message
+  
   if (!isTestMode) {
+    const userMessage: Message = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: messageContent,
+      createdAt: new Date(),
+    };
     await addMessage(conversationId, userMessage);
-  } else {
-    const convo = mockConversations.find(c => c.id === conversationId);
-    if(convo) {
-      convo.messages.push(userMessage);
-      console.log('[ACTION - TEST MODE] User message added to mock conversation.');
-    } else {
-      console.error('[ACTION - TEST MODE] Could not find mock conversation to add user message.');
-    }
   }
 
   let responseContent = '';
@@ -83,6 +58,7 @@ export async function sendMessageAction(
 
     if (agentId === 'minutaMaker') {
       const clientId = clientContext || 'mock-client';
+      // In test mode, we can use mock participants. In prod, we fetch them.
       const pastParticipants = isTestMode 
         ? ['test1@example.com', 'test2@example.com'] 
         : (await suggestParticipants({ clientId })).suggestedParticipants;
@@ -123,31 +99,11 @@ export async function sendMessageAction(
         await updateConversationTitle(conversationId, title);
       } catch (e) {
         console.error("Failed to generate title in production:", e);
-        // Don't block the response for a title failure
       }
-    }
-  } else {
-    const convo = mockConversations.find(c => c.id === conversationId);
-    if (convo) {
-      convo.messages.push(modelMessage);
-      console.log('[ACTION - TEST MODE] Model message added to mock conversation.');
-      if(convo.messages.length === 2) {
-        try {
-            const { title } = await generateConversationTitle({
-                messages: convo.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
-            });
-            convo.title = title;
-            console.log('[ACTION - TEST MODE] Generated title for mock conversation:', title);
-        } catch (e) {
-            console.error("Failed to generate title in test mode:", e);
-            convo.title = "Título no disponible";
-        }
-      }
-    } else {
-       console.error('[ACTION - TEST MODE] Could not find mock conversation to add model message.');
     }
   }
   
+  // Return only the model message. The client will handle UI updates.
   return modelMessage;
 }
 
@@ -156,23 +112,7 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-   if (isTestMode) {
-    console.log('[ACTION - TEST MODE] Creating new mock conversation for user:', userId);
-    const newConversation: Conversation = {
-      id: `mock-convo-${conversationIdCounter++}`,
-      userId: userId,
-      agentId,
-      clientContext: clientContext || (agentId === 'minutaMaker' ? 'cliente_A' : null),
-      title: 'Nueva Conversación de Prueba',
-      messages: [],
-      createdAt: new Date(),
-    };
-    mockConversations.unshift(newConversation); // Add to the beginning
-    console.log('[ACTION - TEST MODE] Mock conversation created:', newConversation);
-    // Return a plain object to avoid serialization issues
-    return newConversation;
-  }
-  // This now calls the dedicated Firestore service function
+   // This action is now only for production. Test mode is handled client-side.
   console.log('[ACTION - PROD MODE] Creating new conversation in Firestore for user:', userId);
   return await createConversationInDb(userId, agentId, clientContext);
 }
