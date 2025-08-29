@@ -75,17 +75,28 @@ export async function saveMinute(
 // Helper to convert Firestore Timestamps to Dates in conversation objects
 const conversationFromDoc = (docSnapshot: any): Conversation => {
     const data = docSnapshot.data();
+    // Safely convert conversation createdAt timestamp
+    const conversationCreatedAt = data.createdAt instanceof Timestamp 
+        ? data.createdAt.toDate() 
+        : new Date(); // Fallback to current date if timestamp is not valid yet
+
+    // Safely convert messages createdAt timestamps
+    const messages = (data.messages || []).map((msg: any) => ({
+        ...msg,
+        createdAt: msg.createdAt instanceof Timestamp 
+            ? msg.createdAt.toDate() 
+            : new Date(), // Fallback for messages as well
+    }));
+
     return {
         id: docSnapshot.id,
         ...data,
-        createdAt: (data.createdAt as Timestamp).toDate(),
-        messages: data.messages.map((msg: any) => ({
-            ...msg,
-            createdAt: (msg.createdAt as Timestamp).toDate(),
-        })),
+        createdAt: conversationCreatedAt,
+        messages: messages,
         title: data.title || null,
     };
 }
+
 
 /**
  * Fetches all conversations for a given user.
