@@ -28,14 +28,12 @@ const mockUser: User = {
 
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(isTestMode ? mockUser : null);
+  const [loading, setLoading] = useState(!isTestMode);
   const router = useRouter();
 
   useEffect(() => {
     if (isTestMode) {
-      setUser(mockUser);
-      setLoading(false);
       return;
     }
 
@@ -89,8 +87,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
      if (isTestMode) {
       setUser(null);
-      // In test mode, we don't have a login page to go to, just clear the user.
-      // Reload to reset the state.
       window.location.reload();
       return;
     }

@@ -33,22 +33,17 @@ export default function AppShell() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<AgentId>('minutaMaker');
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSendingMessage, startSendMessageTransition] = useTransition();
 
   const { toast } = useToast();
 
-  const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
-    startTransition(async () => {
+  const handleCreateNewConversation = (agentIdToCreate: AgentId, clientContext?: string) => {
+    setIsLoading(true);
+    startSendMessageTransition(async () => {
       try {
-        const activeAgent = agents.find(a => a.id === agentIdToCreate);
-        let clientContext: string | undefined;
-
-        if (activeAgent?.needsClientContext) {
-           const existingContext = conversations.find(c => c.agentId === agentIdToCreate)?.clientContext;
-           clientContext = existingContext || CLIENTS[0].id;
-        }
-        
         if (!user) throw new Error("User not authenticated");
+
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
@@ -59,53 +54,55 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo crear una nueva conversación.',
         });
+      } finally {
+        setIsLoading(false);
       }
     });
   };
 
-
-   useEffect(() => {
+  useEffect(() => {
     if (authLoading) return;
-    
+
     if (!isTestMode && !user) {
         router.replace('/login');
         return;
     }
-    
-    if (user) {
-      const loadHistoryAndSetConversation = async () => {
-        try {
-          const history = await getHistoryAction(user.uid);
-          setConversations(history);
-          const agentConversations = history.filter(c => c.agentId === activeAgentId);
-          if (agentConversations.length > 0) {
-              setActiveConversationId(agentConversations[0].id);
-          } else {
-              handleCreateNewConversation(activeAgentId);
-          }
-        } catch (err) {
-          console.error("Failed to load history:", err);
-          toast({
-              variant: 'destructive',
-              title: 'Error',
-              description: 'No se pudo cargar el historial de conversaciones.',
-          });
-        }
-      }
 
-      if (isTestMode) {
-        // In test mode, create a conversation if none exists for the agent
-        const agentConversations = conversations.filter(c => c.agentId === activeAgentId);
-        if (agentConversations.length === 0) {
-          handleCreateNewConversation(activeAgentId);
-        } else {
-          setActiveConversationId(agentConversations[0].id);
+    if (user) {
+      setIsLoading(true);
+      const agentConversations = conversations.filter(c => c.agentId === activeAgentId);
+
+      if (agentConversations.length > 0) {
+        if (activeConversationId !== agentConversations[0].id) {
+            setActiveConversationId(agentConversations[0].id);
         }
+        setIsLoading(false);
       } else {
-        loadHistoryAndSetConversation();
+        // No conversations for this agent, check if we need to load them or create a new one.
+        if (isTestMode) {
+            handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
+        } else {
+            getHistoryAction(user.uid).then(history => {
+                setConversations(history);
+                const agentHistory = history.filter(c => c.agentId === activeAgentId);
+                if (agentHistory.length > 0) {
+                    setActiveConversationId(agentHistory[0].id);
+                } else {
+                    handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
+                }
+            }).catch(err => {
+                console.error("Failed to load history:", err);
+                toast({
+                    variant: 'destructive',
+                    title: 'Error',
+                    description: 'No se pudo cargar el historial de conversaciones.',
+                });
+            }).finally(() => {
+                setIsLoading(false);
+            });
+        }
       }
     }
-
   }, [user, activeAgentId, authLoading]);
 
 
@@ -129,7 +126,6 @@ export default function AppShell() {
 
     const optimisticUserMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     
-    // Optimistic UI update for user message
     setConversations(prev =>
         prev.map(c =>
             c.id === activeConversationId
@@ -138,7 +134,7 @@ export default function AppShell() {
         )
     );
 
-    startTransition(async () => {
+    startSendMessageTransition(async () => {
       try {
         const responseMessage = await sendMessageAction(
           activeConversationId,
@@ -147,22 +143,19 @@ export default function AppShell() {
           clientContext
         );
 
-        // Update UI with model's response
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-              // In test mode, we just add the response
-              if (isTestMode) {
-                 return { ...c, messages: [...c.messages, responseMessage] };
-              }
-              // In production, we fetch history again to get the latest state including the new title if it was generated
-              if(user) {
-                getHistoryAction(user.uid).then(updatedHistory => {
+              const updatedMessages = [...c.messages, responseMessage];
+               if (c.messages.length <= 1) { // First user message
+                 getHistoryAction(user!.uid).then(updatedHistory => {
                     setConversations(updatedHistory);
                     setActiveConversationId(activeConversationId);
-                });
-              }
-              return c; // The getHistoryAction will update the state
+                 });
+                 return c; // Let history reload handle it
+               } else {
+                  return { ...c, messages: updatedMessages };
+               }
             }
             return c;
           })
@@ -174,7 +167,6 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo enviar el mensaje.',
         });
-        // Rollback optimistic update on error
         setConversations(prev =>
             prev.map(c =>
                 c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m !== optimisticUserMessage)} : c
@@ -184,7 +176,7 @@ export default function AppShell() {
     });
   };
   
-  if (authLoading) {
+  if (authLoading && !isTestMode) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -204,9 +196,9 @@ export default function AppShell() {
             activeConversationId={activeConversationId}
             onSelectAgent={handleSelectAgent}
             onSelectConversation={setActiveConversationId}
-            onNewConversation={() => handleCreateNewConversation(activeAgentId)}
+            onNewConversation={() => handleCreateNewConversation(activeAgentId, activeConversation?.clientContext || CLIENTS[0].id)}
             onLogout={handleLogout}
-            isLoading={isPending || authLoading}
+            isLoading={isLoading}
           />
         )}
       </Sidebar>
@@ -216,8 +208,8 @@ export default function AppShell() {
           agent={activeAgent}
           conversation={activeConversation}
           onSendMessage={handleSendMessage}
-          isLoading={isPending || authLoading || !activeConversation}
-          onNewConversation={() => handleCreateNewConversation(activeAgentId)}
+          isLoading={isLoading || isSendingMessage}
+          onNewConversation={() => handleCreateNewConversation(activeAgentId, activeConversation?.clientContext || CLIENTS[0].id)}
         />
       </SidebarInset>
     </SidebarProvider>

@@ -30,7 +30,7 @@ export async function sendMessageAction(
   messageContent: string,
   clientContext?: string
 ): Promise<Message> {
-  
+
   if (!isTestMode) {
       const userMessage: Message = {
         role: 'user',
@@ -99,7 +99,7 @@ export async function createConversationAction(
    if (isTestMode) {
     return {
       id: `mock-convo-${Date.now()}`,
-      userId: 'mock-user',
+      userId: 'mock-user-id',
       agentId,
       clientContext: clientContext || 'mock-client',
       title: 'Nueva Conversación de Prueba',

@@ -8,17 +8,23 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    if (isTestMode) {
+      router.replace('/');
+      return;
+    }
     if (user) {
       router.replace('/');
     }
   }, [user, router]);
 
-  if (loading || user) {
+  if (loading || user || isTestMode) {
      return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
