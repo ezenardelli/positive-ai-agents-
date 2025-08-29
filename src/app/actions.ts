@@ -31,9 +31,8 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
   
-  let userMessage: Message;
   if (!isTestMode) {
-      userMessage = {
+      const userMessage: Message = {
         role: 'user',
         content: messageContent,
         createdAt: new Date(),
@@ -50,18 +49,17 @@ export async function sendMessageAction(
 
   try {
     if (agentId === 'minutaMaker') {
-      if (!clientContext && !isTestMode) {
-        responseContent = 'Error: Se requiere un contexto de cliente para Minuta Maker.';
-      } else {
-        const { suggestedParticipants } = await suggestParticipants({ clientId: clientContext || 'mock-client' });
-        const result = await generateMeetingMinutes({
-          transcript: messageContent,
-          pastParticipants: suggestedParticipants,
-          clientId: clientContext || 'mock-client',
-        });
-        
-        responseContent = `### Resumen Ejecutivo\n${result.summary}\n\n### Puntos de Acción\n${result.actionItems.map(item => `* ${item}`).join('\n')}\n\n### Temas Discutidos\n${result.topicsDiscussed.map(item => `* ${item}`).join('\n')}`;
-      }
+      // In test mode, clientContext might be faked, which is fine.
+      const clientId = clientContext || 'mock-client';
+      const { suggestedParticipants } = await suggestParticipants({ clientId });
+      const result = await generateMeetingMinutes({
+        transcript: messageContent,
+        pastParticipants: suggestedParticipants,
+        clientId: clientId,
+      });
+      
+      responseContent = `### Resumen Ejecutivo\n${result.summary}\n\n### Puntos de Acción\n${result.actionItems.map(item => `* ${item}`).join('\n')}\n\n### Temas Discutidos\n${result.topicsDiscussed.map(item => `* ${item}`).join('\n')}`;
+
     } else if (agentId === 'posiAgent') {
       responseContent = 'Posi Agent coming soon!';
     } else {
@@ -72,7 +70,7 @@ export async function sendMessageAction(
     if (error instanceof Error && (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY'))) {
         responseContent = "Error: La API Key de Gemini no está configurada o no es válida. Por favor, revisa el archivo .env.";
     } else {
-        responseContent = "Lo siento, ha ocurrido un error al procesar tu solicitud.";
+        responseContent = `Lo siento, ha ocurrido un error al procesar tu solicitud. ${error instanceof Error ? error.message : ''}`;
     }
   }
   
@@ -105,7 +103,7 @@ export async function createConversationAction(
       userId: 'mock-user',
       agentId,
       clientContext: clientContext || 'mock-client',
-      title: 'Nueva Conversación',
+      title: 'Nueva Conversación de Prueba',
       messages: [],
       createdAt: new Date(),
     };

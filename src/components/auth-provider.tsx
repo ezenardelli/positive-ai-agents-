@@ -42,6 +42,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUser(user);
+        if (window.location.pathname === '/login') {
+            router.replace('/');
+        }
       } else {
         setUser(null);
         router.replace('/login');
@@ -54,7 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async () => {
     if (isTestMode) {
-       console.log("Login called in test mode, user is already mocked.");
+       setUser(mockUser);
+       router.replace('/');
        return;
     }
     setLoading(true);
@@ -74,10 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
      if (isTestMode) {
-      console.log("Logout called in test mode.");
       setUser(null);
-      // In a real test scenario, we might redirect or show a logged-out state,
-      // but for ease of testing, we'll just log it.
+      router.push('/login');
       return;
     }
     setLoading(true);

@@ -1,7 +1,5 @@
 'use client';
 
-// This page is not used in test mode.
-// In production, AppShell will redirect here if the user is not logged in.
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,17 +8,24 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
 
- useEffect(() => {
+  useEffect(() => {
+    if (isTestMode) {
+        // In test mode, we shouldn't even be on this page. Redirect immediately.
+        router.replace('/');
+        return;
+    }
     if (user) {
       router.replace('/');
     }
   }, [user, router]);
 
-  if (loading || user) {
+  if (loading || user || isTestMode) {
      return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
