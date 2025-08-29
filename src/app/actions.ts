@@ -63,6 +63,10 @@ export async function sendMessageAction(
       throw new Error("La variable de entorno GEMINI_API_KEY no está configurada.");
     }
 
+    // Get current conversation history for context-aware agents
+    const conversation = await getConversationFromDb(conversationId);
+    const history = conversation ? [...conversation.messages, userMessage].map(m => ({role: m.role, content: m.content})) : [{role: 'user' as const, content: messageContent}];
+
     if (agentId === 'minutaMaker') {
        if (!clientContext) {
         throw new Error("Se requiere un cliente para el agente Minuta Maker.");
@@ -86,7 +90,7 @@ export async function sendMessageAction(
       }
 
     } else if (agentId === 'posiAgent') {
-      const result = await answerPositiveItQuestions({ question: messageContent });
+      const result = await answerPositiveItQuestions({ history });
       responseContent = result.answer;
     } else {
       responseContent = 'Error: Agente no encontrado.';
@@ -105,12 +109,12 @@ export async function sendMessageAction(
   if (!isTestMode) {
     await addMessageToDb(conversationId, modelMessage);
 
-    const conversation = await getConversationFromDb(conversationId);
+    const updatedConversation = await getConversationFromDb(conversationId);
     // Title generation only on the second message (first user, first model)
-    if (conversation && conversation.messages.length === 2 && !conversation.title) { 
+    if (updatedConversation && updatedConversation.messages.length === 2 && !updatedConversation.title) { 
       try {
         const { title } = await generateConversationTitle({
-            messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
+            messages: updatedConversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
         });
         await updateConversationTitleInDb(conversationId, title);
       } catch (e) {
