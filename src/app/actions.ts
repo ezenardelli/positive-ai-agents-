@@ -16,17 +16,21 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
-const isProduction = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+// This is the single source of truth for test mode.
+// It's true if the Firebase credentials are NOT set.
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
-// Mock database for test mode (non-production)
+
+// Mock database for test mode
 let mockConversations: Conversation[] = [];
 let conversationIdCounter = 0;
 
 
 export async function getHistoryAction(userId: string, agentId: AgentId): Promise<Conversation[]> {
-  if (!isProduction) {
+  if (isTestMode) {
     // In test mode, return only conversations for the active agent
     const agentHistory = mockConversations.filter(c => c.userId === userId && c.agentId === agentId);
+    // Return a deep copy to avoid mutation issues
     return Promise.resolve(JSON.parse(JSON.stringify(agentHistory)));
   }
   // In production, fetch from Firestore and then filter
@@ -49,7 +53,7 @@ export async function sendMessageAction(
   };
 
   // Persist user message
-  if (isProduction) {
+  if (!isTestMode) {
       await addMessage(conversationId, userMessage);
   } else {
     const convo = mockConversations.find(c => c.id === conversationId);
@@ -99,7 +103,7 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  if (isProduction) {
+  if (!isTestMode) {
     await addMessage(conversationId, modelMessage);
 
     const conversation = await getConversation(conversationId);
@@ -115,10 +119,15 @@ export async function sendMessageAction(
     if (convo) {
       convo.messages.push(modelMessage);
       if(convo.messages.length === 2) {
-        const { title } = await generateConversationTitle({
-            messages: convo.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
-        });
-        convo.title = title;
+        try {
+            const { title } = await generateConversationTitle({
+                messages: convo.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
+            });
+            convo.title = title;
+        } catch (e) {
+            console.error("Failed to generate title in test mode:", e);
+            convo.title = "Título no disponible";
+        }
       }
     }
   }
@@ -132,7 +141,7 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
-   if (!isProduction) {
+   if (isTestMode) {
     const newConversation: Conversation = {
       id: `mock-convo-${conversationIdCounter++}`,
       userId: userId,
@@ -143,9 +152,7 @@ export async function createConversationAction(
       createdAt: new Date(),
     };
     mockConversations.unshift(newConversation); // Add to the beginning
-    // The problem was JSON.stringify which doesn't handle Dates correctly.
-    // Return a plain object. The client receives it as a plain object anyway.
-    return newConversation; 
+    return JSON.parse(JSON.stringify(newConversation));
   }
   return await createConversation(userId, agentId, clientContext);
 }

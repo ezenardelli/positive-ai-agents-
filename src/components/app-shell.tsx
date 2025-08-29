@@ -117,6 +117,7 @@ export default function AppShell() {
     if (agentId !== activeAgentId) {
       setActiveConversationId(null);
       setConversations([]);
+      setIsUiLoading(true); // Show loader while switching agents
       setActiveAgentId(agentId);
       // The useEffect will trigger to load/create convos for the new agent.
     }
@@ -143,12 +144,6 @@ export default function AppShell() {
           message,
           activeConversation?.clientContext
         );
-
-        // The date from the server action is a plain string, convert it
-        const responseMessageWithDate: Message = {
-            ...responseMessage,
-            createdAt: new Date(responseMessage.createdAt),
-        }
         
         setConversations(prev =>
           prev.map(c => {
@@ -156,22 +151,30 @@ export default function AppShell() {
                // Replace optimistic message with the final one from the server (if it had an ID)
                // and add the model's response.
                const newMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
-               newMessages.push(optimisticUserMessage); // Or the real user message if returned
-               newMessages.push(responseMessageWithDate);
+               // The user message is already persisted by the action, so we can re-fetch history for the most accurate state.
+               // For now, we'll just add the response optimistically.
+               newMessages.push(optimisticUserMessage); 
+               newMessages.push({
+                   ...responseMessage,
+                   createdAt: new Date(responseMessage.createdAt),
+               });
                
                // Auto-update title on first real model response
                if (c.messages.length < 2 && user) { 
-                 getHistoryAction(user.uid, activeAgentId).then(updatedHistory => {
-                    const freshConvo = updatedHistory.find(uh => uh.id === c.id);
-                    if (freshConvo) {
-                         const freshConvoWithDates: Conversation = {
-                            ...freshConvo,
-                            createdAt: new Date(freshConvo.createdAt),
-                            messages: freshConvo.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) })),
-                         };
-                        setConversations(currentConvos => currentConvos.map(cc => cc.id === c.id ? freshConvoWithDates : cc));
-                    }
-                 });
+                 // Use a small delay to allow Firestore to update the title
+                 setTimeout(() => {
+                    getHistoryAction(user.uid, activeAgentId).then(updatedHistory => {
+                        const freshConvo = updatedHistory.find(uh => uh.id === c.id);
+                        if (freshConvo && freshConvo.title !== c.title) {
+                            const freshConvoWithDates: Conversation = {
+                                ...freshConvo,
+                                createdAt: new Date(freshConvo.createdAt),
+                                messages: freshConvo.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) })),
+                            };
+                            setConversations(currentConvos => currentConvos.map(cc => cc.id === c.id ? freshConvoWithDates : cc));
+                        }
+                    });
+                 }, 1500)
                }
                return { ...c, messages: newMessages };
             }
@@ -196,7 +199,7 @@ export default function AppShell() {
     });
   };
   
-  if (authLoading || (isUiLoading && !user)) {
+  if (authLoading || (isUiLoading && user)) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
