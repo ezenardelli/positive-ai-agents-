@@ -80,8 +80,9 @@ export default function SidebarContentComponent({
     conversations.filter(c => c.agentId === activeAgentId)
   );
 
+  // This check prevents crash on render if user is momentarily null
   if (!user) {
-    return null; // or a loading skeleton
+    return null;
   }
 
   return (

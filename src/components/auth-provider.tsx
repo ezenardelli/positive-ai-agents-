@@ -40,14 +40,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setLoading(true);
       if (user) {
-        setUser(user);
-        if (window.location.pathname === '/login') {
-            router.replace('/');
+        if(user.email?.endsWith('@positiveit.com.ar')) {
+            setUser(user);
+            if (window.location.pathname === '/login') {
+                router.replace('/');
+            }
+        } else {
+            // User is not from the allowed domain, sign them out.
+            signOut(auth);
+            setUser(null);
+            alert("Acceso denegado. Solo se permiten cuentas de @positiveit.com.ar.");
+            router.replace('/login');
         }
       } else {
         setUser(null);
-        router.replace('/login');
+        if (window.location.pathname !== '/login') {
+            router.replace('/login');
+        }
       }
       setLoading(false);
     });
@@ -68,10 +79,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'hd': 'positiveit.com.ar'
       });
       await signInWithPopup(auth, provider);
-      router.push('/');
+      // The onAuthStateChanged listener will handle routing
     } catch (error) {
       console.error("Error during sign-in:", error);
-    } finally {
       setLoading(false);
     }
   };
@@ -79,7 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
      if (isTestMode) {
       setUser(null);
-      router.push('/login');
+      // In test mode, we don't have a login page to go to, just clear the user.
+      // Reload to reset the state.
+      window.location.reload();
       return;
     }
     setLoading(true);

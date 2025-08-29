@@ -49,7 +49,6 @@ export async function sendMessageAction(
 
   try {
     if (agentId === 'minutaMaker') {
-      // In test mode, clientContext might be faked, which is fine.
       const clientId = clientContext || 'mock-client';
       const { suggestedParticipants } = await suggestParticipants({ clientId });
       const result = await generateMeetingMinutes({

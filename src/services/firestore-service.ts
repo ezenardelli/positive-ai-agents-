@@ -21,11 +21,13 @@ import { db } from '@/lib/firebase';
 import type { GenerateMeetingMinutesOutput } from '@/ai/flows/generate-meeting-minutes';
 import type { Conversation, Message, AgentId } from '@/lib/types';
 
+
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
 /**
  * Fetches past participants for a given client from Firestore.
  */
 export async function getPastParticipants(clientId: string): Promise<string[]> {
-   const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
    if (isTestMode) return ['participante1@test.com', 'participante2@test.com'];
 
   const minutesRef = collection(db, 'minutes');
@@ -57,7 +59,6 @@ export async function saveMinute(
   sourceDocumentUrl: string | undefined,
   minuteData: GenerateMeetingMinutesOutput
 ): Promise<void> {
-  const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (isTestMode) {
       console.log('Test Mode: Skipping saveMinute to Firestore.');
       return;
@@ -95,6 +96,7 @@ const conversationFromDoc = (docSnapshot: any): Conversation => {
  * Fetches all conversations for a given user.
  */
 export async function getConversations(userId: string): Promise<Conversation[]> {
+    if (isTestMode) return [];
     const convosRef = collection(db, 'conversations');
     const q = query(convosRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
@@ -105,6 +107,7 @@ export async function getConversations(userId: string): Promise<Conversation[]> 
  * Fetches a single conversation by its ID.
  */
 export async function getConversation(conversationId: string): Promise<Conversation | null> {
+    if (isTestMode) return null;
     const convoRef = doc(db, 'conversations', conversationId);
     const docSnap = await getDoc(convoRef);
     if(docSnap.exists()) {
@@ -117,6 +120,17 @@ export async function getConversation(conversationId: string): Promise<Conversat
  * Creates a new conversation in Firestore.
  */
 export async function createConversation(userId: string, agentId: AgentId, clientContext?: string): Promise<Conversation> {
+    if (isTestMode) {
+        return {
+            id: `mock-convo-${Date.now()}`,
+            userId,
+            agentId,
+            clientContext: clientContext || undefined,
+            title: 'Nueva Conversación de Prueba',
+            messages: [],
+            createdAt: new Date(),
+        };
+    }
     const newConvoData = {
         userId,
         agentId,
@@ -134,6 +148,7 @@ export async function createConversation(userId: string, agentId: AgentId, clien
  * Adds a new message to a conversation.
  */
 export async function addMessage(conversationId: string, message: Message): Promise<void> {
+    if (isTestMode) return;
     const convoRef = doc(db, 'conversations', conversationId);
     await updateDoc(convoRef, {
         messages: arrayUnion({
@@ -147,6 +162,7 @@ export async function addMessage(conversationId: string, message: Message): Prom
  * Updates the title of a conversation.
  */
 export async function updateConversationTitle(conversationId: string, title: string): Promise<void> {
+    if (isTestMode) return;
     const convoRef = doc(db, 'conversations', conversationId);
     await updateDoc(convoRef, { title });
 }
