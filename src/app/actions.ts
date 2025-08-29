@@ -36,6 +36,7 @@ export async function sendMessageAction(
   messageContent: string,
   clientContext: string | undefined,
   isTestMode: boolean,
+  currentMessages: Message[],
 ): Promise<Message> {
   console.log(`[ACTION - sendMessageAction] Convo ID: ${conversationId}, Agent: ${agentId}, Test Mode: ${isTestMode}`);
 
@@ -63,10 +64,6 @@ export async function sendMessageAction(
       throw new Error("La variable de entorno GEMINI_API_KEY no está configurada.");
     }
 
-    // Get current conversation history for context-aware agents
-    const conversation = await getConversationFromDb(conversationId);
-    const history = conversation ? [...conversation.messages, userMessage].map(m => ({role: m.role, content: m.content})) : [{role: 'user' as const, content: messageContent}];
-
     if (agentId === 'minutaMaker') {
        if (!clientContext) {
         throw new Error("Se requiere un cliente para el agente Minuta Maker.");
@@ -90,6 +87,7 @@ export async function sendMessageAction(
       }
 
     } else if (agentId === 'posiAgent') {
+      const history = [...currentMessages, userMessage].map(m => ({role: m.role, content: m.content}));
       const result = await answerPositiveItQuestions({ history });
       responseContent = result.answer;
     } else {
@@ -97,8 +95,8 @@ export async function sendMessageAction(
     }
   } catch (error) {
     console.error("[ACTION] Error processing agent logic:", error);
-    if (error instanceof Error && (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY'))) {
-        responseContent = "Error: La API Key de Gemini no está configurada o no es válida. Por favor, revisa el archivo .env.";
+    if (error instanceof Error && (error.message.includes('API key') || error.message.includes('GEMINI_API_KEY') || error.message.includes('permission'))) {
+        responseContent = `Error de configuración: ${error.message}. Por favor, revisa la API Key de Gemini o los permisos de Firestore.`;
     } else {
         responseContent = `Lo siento, ha ocurrido un error al procesar tu solicitud. ${error instanceof Error ? error.message : ''}`;
     }
@@ -110,7 +108,6 @@ export async function sendMessageAction(
     await addMessageToDb(conversationId, modelMessage);
 
     const updatedConversation = await getConversationFromDb(conversationId);
-    // Title generation only on the second message (first user, first model)
     if (updatedConversation && updatedConversation.messages.length === 2 && !updatedConversation.title) { 
       try {
         const { title } = await generateConversationTitle({

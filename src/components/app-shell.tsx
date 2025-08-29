@@ -141,13 +141,13 @@ export default function AppShell() {
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
     
     // Optimistic UI update for the user's message
-    setConversations(prev =>
-        prev.map(c =>
-            c.id === forConversation.id
-                ? { ...c, messages: [...c.messages, optimisticUserMessage] }
-                : c
-        )
+    const newConversations = conversations.map(c =>
+        c.id === forConversation.id
+            ? { ...c, messages: [...c.messages, optimisticUserMessage] }
+            : c
     );
+    setConversations(newConversations);
+    const currentMessages = newConversations.find(c => c.id === forConversation.id)?.messages ?? [];
 
     startSendMessageTransition(async () => {
       try {
@@ -157,6 +157,7 @@ export default function AppShell() {
           message,
           forConversation.clientContext,
           FORCE_TEST_MODE,
+          currentMessages
         );
 
          // Final state update with model's response
@@ -170,8 +171,12 @@ export default function AppShell() {
                       // Also, update the title if it's the first exchange and title is default
                       let newTitle = c.title;
                       if (finalMessages.length === 2 && (c.title === 'Nueva Conversación' || !c.title)) {
-                        const potentialTitle = message.substring(0, 30) + "...";
-                        newTitle = potentialTitle
+                         const potentialTitle = message.substring(0, 30) + "...";
+                         newTitle = potentialTitle;
+                         // Async title update in backend if not in test mode
+                         if (!FORCE_TEST_MODE) {
+                           updateConversationTitleAction(c.id, newTitle);
+                         }
                       }
                       return { ...c, messages: finalMessages, title: newTitle };
                   }
@@ -199,7 +204,7 @@ export default function AppShell() {
     // Update the local state optimistically
     setConversations(prev =>
       prev.map(c =>
-        c.id === conversationId ? { ...c, agentId: newAgentId, clientContext: newClientContext || undefined } : c
+        c.id === conversationId ? { ...c, agentId: newAgentId, clientContext: newClientContext || undefined, messages: [] } : c
       )
     );
 
@@ -231,7 +236,7 @@ export default function AppShell() {
                     description: `No se pudo actualizar el nombre. ${error}`,
                 });
                 // Rollback
-                setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: currentTitle } : c));
+                setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: currentTitle ?? null } : c));
             }
         }
     }
