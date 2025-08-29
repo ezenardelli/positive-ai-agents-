@@ -12,7 +12,7 @@ import {
   getConversations,
   getConversation,
   addMessage,
-  createConversation,
+  createConversation as createConversationInDb,
   updateConversationTitle
 } from '@/services/firestore-service';
 
@@ -44,7 +44,6 @@ export async function sendMessageAction(
   messageContent: string,
   clientContext?: string
 ): Promise<Message> {
-
   const userMessage: Message = {
     id: `msg-${Date.now()}`,
     role: 'user',
@@ -54,7 +53,7 @@ export async function sendMessageAction(
 
   // Persist user message
   if (!isTestMode) {
-      await addMessage(conversationId, userMessage);
+    await addMessage(conversationId, userMessage);
   } else {
     const convo = mockConversations.find(c => c.id === conversationId);
     if(convo) {
@@ -86,7 +85,6 @@ export async function sendMessageAction(
       });
       
       responseContent = `### Resumen Ejecutivo\n${result.summary}\n\n### Puntos de Acción\n${result.actionItems.map(item => `* ${item}`).join('\n')}\n\n### Temas Discutidos\n${result.topicsDiscussed.map(item => `* ${item}`).join('\n')}`;
-
     } else if (agentId === 'posiAgent') {
       responseContent = 'Posi Agent coming soon!';
     } else {
@@ -109,10 +107,15 @@ export async function sendMessageAction(
     const conversation = await getConversation(conversationId);
     // Title generation only on the second message (first user, first model)
     if (conversation && conversation.messages.length === 2) { 
-      const { title } = await generateConversationTitle({
-        messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
-      });
-      await updateConversationTitle(conversationId, title);
+      try {
+        const { title } = await generateConversationTitle({
+            messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
+        });
+        await updateConversationTitle(conversationId, title);
+      } catch (e) {
+        console.error("Failed to generate title in production:", e);
+        // Don't block the response for a title failure
+      }
     }
   } else {
     const convo = mockConversations.find(c => c.id === conversationId);
@@ -135,7 +138,6 @@ export async function sendMessageAction(
   return modelMessage;
 }
 
-
 export async function createConversationAction(
   userId: string,
   agentId: AgentId,
@@ -152,7 +154,9 @@ export async function createConversationAction(
       createdAt: new Date(),
     };
     mockConversations.unshift(newConversation); // Add to the beginning
+    // Return a deep copy to prevent mutation issues.
     return JSON.parse(JSON.stringify(newConversation));
   }
-  return await createConversation(userId, agentId, clientContext);
+  // This now calls the dedicated Firestore service function
+  return await createConversationInDb(userId, agentId, clientContext);
 }

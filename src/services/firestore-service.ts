@@ -22,14 +22,14 @@ import type { GenerateMeetingMinutesOutput } from '@/ai/flows/generate-meeting-m
 import type { Conversation, Message, AgentId } from '@/lib/types';
 
 
-const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+// In Firestore, there's no real "test mode". We assume if this code runs, 
+// it's in a server environment with valid credentials.
+// The "test mode" logic is handled in the actions.ts file.
 
 /**
  * Fetches past participants for a given client from Firestore.
  */
 export async function getPastParticipants(clientId: string): Promise<string[]> {
-   if (isTestMode) return ['participante1@test.com', 'participante2@test.com'];
-
   const minutesRef = collection(db, 'minutes');
   const q = query(minutesRef, where('clientId', '==', clientId));
   const querySnapshot = await getDocs(q);
@@ -59,11 +59,6 @@ export async function saveMinute(
   sourceDocumentUrl: string | undefined,
   minuteData: GenerateMeetingMinutesOutput
 ): Promise<void> {
-  if (isTestMode) {
-      console.log('Test Mode: Skipping saveMinute to Firestore.');
-      return;
-  };
-
   try {
     await addDoc(collection(db, 'minutes'), {
       clientId,
@@ -96,7 +91,6 @@ const conversationFromDoc = (docSnapshot: any): Conversation => {
  * Fetches all conversations for a given user.
  */
 export async function getConversations(userId: string): Promise<Conversation[]> {
-    if (isTestMode) return [];
     const convosRef = collection(db, 'conversations');
     const q = query(convosRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
     const querySnapshot = await getDocs(q);
@@ -107,7 +101,6 @@ export async function getConversations(userId: string): Promise<Conversation[]> 
  * Fetches a single conversation by its ID.
  */
 export async function getConversation(conversationId: string): Promise<Conversation | null> {
-    if (isTestMode) return null;
     const convoRef = doc(db, 'conversations', conversationId);
     const docSnap = await getDoc(convoRef);
     if(docSnap.exists()) {
@@ -120,9 +113,6 @@ export async function getConversation(conversationId: string): Promise<Conversat
  * Creates a new conversation in Firestore.
  */
 export async function createConversation(userId: string, agentId: AgentId, clientContext?: string): Promise<Conversation> {
-    if (isTestMode) {
-        throw new Error("createConversation should not be called in test mode. Use createConversationAction instead.");
-    }
     const newConvoData = {
         userId,
         agentId,
@@ -141,12 +131,12 @@ export async function createConversation(userId: string, agentId: AgentId, clien
  * Adds a new message to a conversation.
  */
 export async function addMessage(conversationId: string, message: Message): Promise<void> {
-    if (isTestMode) return;
     const convoRef = doc(db, 'conversations', conversationId);
     // Firestore security rules will ensure the user can only write to their own conversations.
     await updateDoc(convoRef, {
         messages: arrayUnion({
             ...message,
+            // Convert JS Date back to Firestore Timestamp for storage
             createdAt: Timestamp.fromDate(message.createdAt)
         })
     });
@@ -156,7 +146,6 @@ export async function addMessage(conversationId: string, message: Message): Prom
  * Updates the title of a conversation.
  */
 export async function updateConversationTitle(conversationId: string, title: string): Promise<void> {
-    if (isTestMode) return;
     const convoRef = doc(db, 'conversations', conversationId);
     await updateDoc(convoRef, { title });
 }

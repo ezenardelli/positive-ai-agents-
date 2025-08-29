@@ -43,10 +43,11 @@ export default function AppShell() {
   const handleCreateNewConversation = (agentIdToCreate: AgentId, clientContext?: string) => {
     if (!user) return;
     
+    // Set loading state true when creating a new conversation
+    setIsUiLoading(true);
     startSendMessageTransition(async () => {
       try {
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-        // The dates from the server action are plain strings, so we need to convert them back to Date objects
         const newConvoWithDates: Conversation = {
           ...newConversation,
           createdAt: new Date(newConversation.createdAt),
@@ -59,8 +60,11 @@ export default function AppShell() {
         toast({
           variant: 'destructive',
           title: 'Error',
-          description: 'No se pudo crear una nueva conversación.',
+          description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
         });
+      } finally {
+        // Always set loading state to false after the operation
+        setIsUiLoading(false);
       }
     });
   };
@@ -79,7 +83,6 @@ export default function AppShell() {
     setIsUiLoading(true);
     getHistoryAction(user.uid, activeAgentId)
       .then(history => {
-        // The dates from the server action are plain strings, so we need to convert them back to Date objects
         const historyWithDates = history.map(c => ({
             ...c,
             createdAt: new Date(c.createdAt),
@@ -89,8 +92,10 @@ export default function AppShell() {
   
         if (historyWithDates.length > 0) {
           setActiveConversationId(historyWithDates[0].id);
+           setIsUiLoading(false);
         } else {
           // No history for this user/agent, create a new conversation.
+          // The creation function will handle setting the loading state to false.
           handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
         }
       })
@@ -101,8 +106,6 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo cargar el historial de conversaciones.',
         });
-      })
-      .finally(() => {
         setIsUiLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,41 +148,21 @@ export default function AppShell() {
           activeConversation?.clientContext
         );
         
-        setConversations(prev =>
-          prev.map(c => {
-            if (c.id === activeConversationId) {
-               // Replace optimistic message with the final one from the server (if it had an ID)
-               // and add the model's response.
-               const newMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
-               // The user message is already persisted by the action, so we can re-fetch history for the most accurate state.
-               // For now, we'll just add the response optimistically.
-               newMessages.push(optimisticUserMessage); 
-               newMessages.push({
-                   ...responseMessage,
-                   createdAt: new Date(responseMessage.createdAt),
-               });
-               
-               // Auto-update title on first real model response
-               if (c.messages.length < 2 && user) { 
-                 // Use a small delay to allow Firestore to update the title
-                 setTimeout(() => {
-                    getHistoryAction(user.uid, activeAgentId).then(updatedHistory => {
-                        const freshConvo = updatedHistory.find(uh => uh.id === c.id);
-                        if (freshConvo && freshConvo.title !== c.title) {
-                            const freshConvoWithDates: Conversation = {
-                                ...freshConvo,
-                                createdAt: new Date(freshConvo.createdAt),
-                                messages: freshConvo.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) })),
-                            };
-                            setConversations(currentConvos => currentConvos.map(cc => cc.id === c.id ? freshConvoWithDates : cc));
-                        }
-                    });
-                 }, 1500)
-               }
-               return { ...c, messages: newMessages };
-            }
-            return c;
-          })
+        // Fetch the latest state of the conversation, which now includes the persisted user message and the title if generated
+        const updatedHistory = await getHistoryAction(user.uid, activeAgentId);
+        const updatedHistoryWithDates = updatedHistory.map(c => ({
+          ...c,
+          createdAt: new Date(c.createdAt),
+          messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        }));
+        
+        // Find the current conversation in the updated history
+        const currentConvoFromServer = updatedHistoryWithDates.find(c => c.id === activeConversationId);
+        
+        setConversations(prevConvos => 
+          prevConvos.map(c => 
+            c.id === activeConversationId ? (currentConvoFromServer || c) : c
+          )
         );
 
       } catch (error) {
@@ -211,7 +194,8 @@ export default function AppShell() {
     return <LoginPage login={login} />
   }
 
-  const isLoading = isUiLoading || isSendingMessage;
+  // Combine UI loading and message sending into one state for simplicity in the UI
+  const isProcessing = isUiLoading || isSendingMessage;
 
   return (
     <SidebarProvider>
@@ -235,7 +219,7 @@ export default function AppShell() {
           agent={activeAgent}
           conversation={activeConversation}
           onSendMessage={handleSendMessage}
-          isLoading={isLoading}
+          isLoading={isProcessing}
           onNewConversation={() => handleCreateNewConversation(activeAgentId, activeConversation?.clientContext || CLIENTS[0].id)}
         />
       </SidebarInset>
