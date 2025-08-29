@@ -1,6 +1,7 @@
-'use client';
+'use server';
 /**
  * @fileoverview Service functions for interacting with Firestore.
+ * IMPORTANT: This file should only be imported by server-side code (e.g., actions.ts).
  */
 
 import {
@@ -24,6 +25,9 @@ import type { Conversation, Message, AgentId } from '@/lib/types';
  * Fetches past participants for a given client from Firestore.
  */
 export async function getPastParticipants(clientId: string): Promise<string[]> {
+   const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+   if (isTestMode) return ['participante1@test.com', 'participante2@test.com'];
+
   const minutesRef = collection(db, 'minutes');
   const q = query(minutesRef, where('clientId', '==', clientId));
   const querySnapshot = await getDocs(q);
@@ -53,6 +57,12 @@ export async function saveMinute(
   sourceDocumentUrl: string | undefined,
   minuteData: GenerateMeetingMinutesOutput
 ): Promise<void> {
+  const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+  if (isTestMode) {
+      console.log('Test Mode: Skipping saveMinute to Firestore.');
+      return;
+  };
+
   try {
     await addDoc(collection(db, 'minutes'), {
       clientId,
@@ -116,11 +126,8 @@ export async function createConversation(userId: string, agentId: AgentId, clien
         createdAt: Timestamp.now(),
     };
     const docRef = await addDoc(collection(db, 'conversations'), newConvoData);
-    return {
-        id: docRef.id,
-        ...newConvoData,
-        createdAt: new Date() // convert timestamp to date for immediate use
-    } as Conversation;
+    const docSnap = await getDoc(docRef);
+    return conversationFromDoc(docSnap);
 }
 
 /**

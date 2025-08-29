@@ -15,13 +15,28 @@ type AuthContextType = {
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
+// Check if Firebase environment variables are set. If not, run in test mode.
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
+// Create a mock user for testing purposes.
+const mockUser: User = {
+  uid: 'mock-user-id',
+  email: 'test@positiveit.com.ar',
+  displayName: 'Test User',
+  photoURL: 'https://picsum.photos/100/100',
+  providerId: 'google.com',
+  emailVerified: true,
+} as User;
+
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(isTestMode ? mockUser : null);
+  const [loading, setLoading] = useState(!isTestMode);
   const router = useRouter();
 
   useEffect(() => {
+    if (isTestMode) return;
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUser(user);
@@ -35,10 +50,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async () => {
+    if (isTestMode) {
+      setUser(mockUser);
+      router.push('/');
+      return;
+    }
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      // Only allow users from positiveit.com.ar
       provider.setCustomParameters({
           'hd': 'positiveit.com.ar'
       });
@@ -46,13 +65,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.push('/');
     } catch (error) {
       console.error("Error during sign-in:", error);
-      // Optionally, show a toast to the user
     } finally {
       setLoading(false);
     }
   };
 
   const logout = async () => {
+     if (isTestMode) {
+      setUser(null);
+      router.push('/login');
+      return;
+    }
     setLoading(true);
     try {
       await signOut(auth);

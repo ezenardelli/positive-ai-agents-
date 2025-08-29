@@ -22,6 +22,9 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
+
 export default function AppShell() {
   const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
@@ -41,25 +44,31 @@ export default function AppShell() {
     }
   }, [user, authLoading, router]);
 
-  const handleCreateNewConversation = async (agentIdToCreate: AgentId) => {
+ const handleCreateNewConversation = (agentIdToCreate: AgentId) => {
     if (!user) return;
-    try {
-      const newConversation = await createConversationAction(user.uid, agentIdToCreate);
-      setConversations(prev => [newConversation, ...prev]);
-      setActiveConversationId(newConversation.id);
-      return newConversation;
-    } catch (error) {
-      console.error('Failed to create new conversation:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'No se pudo crear una nueva conversación.',
-      });
-      return null;
-    }
+    
+    startTransition(async () => {
+      try {
+        // Find an appropriate client context if needed
+        const activeAgent = agents.find(a => a.id === agentIdToCreate);
+        const clientContext = activeAgent?.needsClientContext ? conversations.find(c => c.agentId === agentIdToCreate)?.clientContext : undefined;
+
+        const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
+        setConversations(prev => [newConversation, ...prev]);
+        setActiveConversationId(newConversation.id);
+      } catch (error) {
+        console.error('Failed to create new conversation:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo crear una nueva conversación.',
+        });
+      }
+    });
   };
 
-  useEffect(() => {
+
+   useEffect(() => {
     if (user) {
       setIsLoading(true);
       getHistoryAction(user.uid).then(history => {
@@ -67,13 +76,9 @@ export default function AppShell() {
         const agentConversations = history.filter(c => c.agentId === activeAgentId);
         if (agentConversations.length > 0) {
           setActiveConversationId(agentConversations[0].id);
-          setIsLoading(false);
         } else {
           // If no conversations exist for the active agent, create one.
-          startTransition(async () => {
-             await handleCreateNewConversation(activeAgentId);
-             setIsLoading(false);
-          });
+          handleCreateNewConversation(activeAgentId);
         }
       }).catch(err => {
         console.error("Failed to load history:", err);
@@ -82,17 +87,22 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo cargar el historial de conversaciones.',
         });
+      }).finally(() => {
         setIsLoading(false);
       });
     }
   }, [user, activeAgentId]);
 
+
   const activeAgent = agents.find(a => a.id === activeAgentId)!;
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
   const handleSelectAgent = (agentId: AgentId) => {
-    setActiveAgentId(agentId);
-    setActiveConversationId(null); // Reset active conversation
+    if (agentId !== activeAgentId) {
+      setActiveAgentId(agentId);
+      setActiveConversationId(null); 
+      setIsLoading(true);
+    }
   };
 
   const handleLogout = () => {
@@ -103,13 +113,14 @@ export default function AppShell() {
     if (!activeConversationId) return;
 
     const optimisticMessage: Message = { role: 'user', content: message, createdAt: new Date() };
-    setConversations(prev =>
-      prev.map(c =>
+    
+    // Optimistically update UI
+    const newConversations = conversations.map(c =>
         c.id === activeConversationId
-          ? { ...c, messages: [...c.messages, optimisticMessage] }
-          : c
-      )
+            ? { ...c, messages: [...c.messages, optimisticMessage] }
+            : c
     );
+    setConversations(newConversations);
 
     startTransition(async () => {
       try {
@@ -120,24 +131,31 @@ export default function AppShell() {
           clientContext
         );
 
-        const finalUserMessage: Message = { ...optimisticMessage, createdAt: new Date() };
-
-        setConversations(prev =>
+        // Update with final server response
+         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-              const existingMessages = c.messages.filter(m => m.content !== optimisticMessage.content);
-              return { ...c, messages: [...existingMessages, finalUserMessage, responseMessage] };
+              // Replace optimistic message with the final one from the server perspective
+              const finalMessages = [...c.messages.slice(0, -1), optimisticMessage, responseMessage];
+               return { ...c, messages: finalMessages };
             }
             return c;
           })
         );
-        
-         const updatedHistory = await getHistoryAction(user!.uid);
-         setConversations(updatedHistory);
-         const updatedConv = updatedHistory.find(c => c.id === activeConversationId);
-         if (updatedConv) {
-           setConversations(prev => prev.map(p => p.id === updatedConv.id ? updatedConv : p));
-         }
+
+        if (!isTestMode) {
+          // In real mode, we fetch history to get the latest state including the title update
+          const updatedHistory = await getHistoryAction(user!.uid);
+          setConversations(updatedHistory);
+        } else {
+            // In test mode, we just add the response and maybe update title locally
+            setConversations(prev => prev.map(c => {
+                if (c.id === activeConversationId && c.messages.length <= 2) {
+                    return {...c, title: `Conversación sobre "${message.substring(0, 20)}..."`}
+                }
+                return c;
+            }));
+        }
 
 
       } catch (error) {
@@ -147,6 +165,7 @@ export default function AppShell() {
           title: 'Error',
           description: 'No se pudo enviar el mensaje.',
         });
+        // Rollback optimistic update
         setConversations(prev =>
             prev.map(c =>
                 c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.content !== optimisticMessage.content)} : c
@@ -156,7 +175,7 @@ export default function AppShell() {
     });
   };
 
-  if (authLoading || !user) {
+  if (authLoading || (!user && !isTestMode)) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -175,7 +194,7 @@ export default function AppShell() {
           activeConversationId={activeConversationId}
           onSelectAgent={handleSelectAgent}
           onSelectConversation={setActiveConversationId}
-          onNewConversation={() => startTransition(async () => {await handleCreateNewConversation(activeAgentId)})}
+          onNewConversation={() => handleCreateNewConversation(activeAgentId)}
           onLogout={handleLogout}
           isLoading={isLoading}
         />

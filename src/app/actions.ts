@@ -16,7 +16,12 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
+// Check if Firebase environment variables are set. If not, run in test mode.
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
+
 export async function getHistoryAction(userId: string): Promise<Conversation[]> {
+  if (isTestMode) return [];
   return await getConversations(userId);
 }
 
@@ -27,12 +32,15 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
   
-  const userMessage: Message = {
-    role: 'user',
-    content: messageContent,
-    createdAt: new Date(),
-  };
-  await addMessage(conversationId, userMessage);
+  if (!isTestMode) {
+      const userMessage: Message = {
+        role: 'user',
+        content: messageContent,
+        createdAt: new Date(),
+      };
+      await addMessage(conversationId, userMessage);
+  }
+
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -43,14 +51,14 @@ export async function sendMessageAction(
 
   try {
     if (agentId === 'minutaMaker') {
-      if (!clientContext) {
+      if (!clientContext && !isTestMode) {
         responseContent = 'Error: Se requiere un contexto de cliente para Minuta Maker.';
       } else {
-        const { suggestedParticipants } = await suggestParticipants({ clientId: clientContext });
+        const { suggestedParticipants } = await suggestParticipants({ clientId: clientContext || 'mock-client' });
         const result = await generateMeetingMinutes({
           transcript: messageContent,
           pastParticipants: suggestedParticipants,
-          clientId: clientContext,
+          clientId: clientContext || 'mock-client',
         });
         
         responseContent = `### Resumen Ejecutivo\n${result.summary}\n\n### Puntos de Acción\n${result.actionItems.map(item => `* ${item}`).join('\n')}\n\n### Temas Discutidos\n${result.topicsDiscussed.map(item => `* ${item}`).join('\n')}`;
@@ -71,14 +79,16 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  await addMessage(conversationId, modelMessage);
+  if (!isTestMode) {
+    await addMessage(conversationId, modelMessage);
 
-  const conversation = await getConversation(conversationId);
-  if (conversation && conversation.messages.length <= 2) { 
-    const { title } = await generateConversationTitle({
-      messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
-    });
-    await updateConversationTitle(conversationId, title);
+    const conversation = await getConversation(conversationId);
+    if (conversation && conversation.messages.length <= 2) { 
+      const { title } = await generateConversationTitle({
+        messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
+      });
+      await updateConversationTitle(conversationId, title);
+    }
   }
   
   return modelMessage;
@@ -90,5 +100,16 @@ export async function createConversationAction(
   agentId: AgentId,
   clientContext?: string,
 ): Promise<Conversation> {
+   if (isTestMode) {
+    return {
+      id: `mock-convo-${Date.now()}`,
+      userId: 'mock-user',
+      agentId,
+      clientContext: clientContext || 'mock-client',
+      title: 'Nueva Conversación de Prueba',
+      messages: [],
+      createdAt: new Date(),
+    };
+  }
   return await createConversation(userId, agentId, clientContext);
 }
