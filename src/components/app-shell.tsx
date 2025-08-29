@@ -42,19 +42,19 @@ export default function AppShell() {
 
   const { toast } = useToast();
 
-  const handleCreateNewConversation = async (clientContext?: string) => {
+  const handleCreateNewConversation = async (clientContext?: string): Promise<Conversation | void> => {
     if (!user) return;
     
     let newConversation: Conversation | undefined;
     
     try {
         if (FORCE_TEST_MODE) {
-            console.log("[AppShell] Creating new MOCK conversation (Client-side)");
+            console.log("[AppShell Test Mode] Creating new MOCK conversation (Client-side)");
             newConversation = {
                 id: `mock_convo_${Date.now()}`,
                 userId: user.uid,
                 agentId: activeAgentId,
-                clientContext: clientContext,
+                clientContext: clientContext || (AGENTS.find(a => a.id === activeAgentId)?.needsClientContext ? CLIENTS[0].id : undefined),
                 messages: [],
                 title: 'Nueva Conversación (Test)',
                 createdAt: new Date(),
@@ -70,7 +70,7 @@ export default function AppShell() {
         }
         setConversations(prev => [newConversation!, ...prev]);
         setActiveConversationId(newConversation!.id);
-        return newConversation;
+        return newConversation; // Return the created conversation
       } catch (error) {
           console.error('Failed to create new conversation:', error);
           toast({
@@ -95,7 +95,7 @@ export default function AppShell() {
     setIsUiLoading(true);
 
     if (FORCE_TEST_MODE) {
-        console.log("[AppShell] Test mode is active. Skipping history fetch.");
+        console.log("[AppShell Test Mode] Skipping history fetch, starting fresh.");
         setConversations([]);
         setActiveConversationId(null);
         setIsUiLoading(false);
@@ -147,14 +147,14 @@ export default function AppShell() {
   const handleSendMessage = (message: string) => {
     if (!activeConversationId || !user) return;
 
-    const optimisticUserMessage: Message = { id: `optimistic-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
+    const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
     
     setConversations(prev =>
-      prev.map(c =>
-        c.id === activeConversationId
-          ? { ...c, messages: [...c.messages, optimisticUserMessage] }
-          : c
-      )
+        prev.map(c =>
+            c.id === activeConversationId
+                ? { ...c, messages: [...c.messages, optimisticUserMessage] }
+                : c
+        )
     );
 
     startSendMessageTransition(async () => {
@@ -162,8 +162,8 @@ export default function AppShell() {
         let modelResponse: Message;
 
         if(FORCE_TEST_MODE) {
-          console.log("[AppShell] Sending message in test mode (client-side flow)");
-           const result = await generateMeetingMinutes({
+          console.log("[AppShell Test Mode] Sending message in test mode (client-side flow)");
+          const result = await generateMeetingMinutes({
             transcript: message,
             pastParticipants: [],
             isTestMode: true,
@@ -174,29 +174,40 @@ export default function AppShell() {
             content: result.fullGeneratedText,
             createdAt: new Date(),
           };
+           // In test mode, we manually update the conversation state with the real user message and model response.
+           setConversations(prev =>
+                prev.map(c => {
+                    if (c.id === activeConversationId) {
+                        // Replace optimistic message with a final one and add model response.
+                        const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
+                        finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, modelResponse);
+                        return { ...c, messages: finalMessages };
+                    }
+                    return c;
+                })
+            );
+
         } else {
+          // Production mode logic
           modelResponse = await sendMessageAction(
             activeConversationId,
             activeAgentId,
             message,
             activeConversation?.clientContext
           );
+           // In production, the state is updated based on the response from the server action which already handled DB writes.
+            setConversations(prev =>
+                prev.map(c => {
+                    if (c.id === activeConversationId) {
+                       const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
+                       // The server action only returns the model's message. We assume the user message was saved.
+                       finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, {...modelResponse, createdAt: new Date(modelResponse.createdAt)});
+                       return { ...c, messages: finalMessages };
+                    }
+                    return c;
+                })
+            );
         }
-        
-        // After getting the real response, update the conversation state
-        setConversations(prev =>
-          prev.map(c => {
-            if (c.id === activeConversationId) {
-              // Replace optimistic message with the final one and add model response
-              const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
-              finalMessages.push(optimisticUserMessage, modelResponse);
-              return { ...c, messages: finalMessages };
-            }
-            return c;
-          })
-        );
-
-
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
