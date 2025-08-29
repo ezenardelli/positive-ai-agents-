@@ -22,10 +22,6 @@ import type { GenerateMeetingMinutesOutput } from '@/ai/flows/generate-meeting-m
 import type { Conversation, Message, AgentId } from '@/lib/types';
 
 
-// In Firestore, there's no real "test mode". We assume if this code runs, 
-// it's in a server environment with valid credentials.
-// The "test mode" logic is handled in the actions.ts file.
-
 /**
  * Fetches past participants for a given client from Firestore.
  */
@@ -58,7 +54,7 @@ export async function getPastParticipants(clientId: string): Promise<string[]> {
 export async function saveMinute(
   clientId: string,
   sourceDocumentUrl: string | undefined,
-  minuteData: GenerateMeetingMinutesOutput
+  minuteData: GenerateMeetingMinutesOutput & { transcript: string }
 ): Promise<void> {
   try {
     await addDoc(collection(db, 'minutes'), {

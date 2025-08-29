@@ -26,7 +26,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login de Firebase y usa un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real de Google con Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = true;
+const FORCE_TEST_MODE = false;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth(FORCE_TEST_MODE);
@@ -37,7 +37,6 @@ export default function AppShell() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isUiLoading, setIsUiLoading] = useState(true);
   const [isSendingMessage, startSendMessageTransition] = useTransition();
-  const [mockConversationCounter, setMockConversationCounter] = useState(0);
 
   const { toast } = useToast();
 
@@ -45,44 +44,28 @@ export default function AppShell() {
     if (!user) return;
     
     setIsUiLoading(true);
-    if (FORCE_TEST_MODE) {
-        console.log('[AppShell - TEST MODE] Creating new mock conversation.');
-        const newConversation: Conversation = {
-            id: `mock-convo-${mockConversationCounter}`,
-            userId: user.uid,
-            agentId: agentIdToCreate,
-            clientContext: clientContext || (agentIdToCreate === 'minutaMaker' ? CLIENTS[0].id : undefined),
-            title: 'Nueva Conversación de Prueba',
-            messages: [],
-            createdAt: new Date(),
-        };
-        setMockConversationCounter(prev => prev + 1);
-        setConversations(prev => [newConversation, ...prev]);
-        setActiveConversationId(newConversation.id);
-        setIsUiLoading(false);
-    } else {
-        startSendMessageTransition(async () => {
-            try {
-                const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-                const newConversationWithDate: Conversation = {
-                    ...newConversation,
-                    createdAt: new Date(newConversation.createdAt),
-                    messages: newConversation.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
-                };
-                setConversations(prev => [newConversationWithDate, ...prev]);
-                setActiveConversationId(newConversationWithDate.id);
-            } catch (error) {
-                console.error('Failed to create new conversation:', error);
-                toast({
-                    variant: 'destructive',
-                    title: 'Error',
-                    description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
-                });
-            } finally {
-                setIsUiLoading(false);
-            }
-        });
-    }
+    startSendMessageTransition(async () => {
+        try {
+            console.log(`[AppShell] Creating new conversation for user ${user.uid} with agent ${agentIdToCreate}`);
+            const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
+            const newConversationWithDate: Conversation = {
+                ...newConversation,
+                createdAt: new Date(newConversation.createdAt),
+                messages: newConversation.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+            };
+            setConversations(prev => [newConversationWithDate, ...prev]);
+            setActiveConversationId(newConversationWithDate.id);
+        } catch (error) {
+            console.error('Failed to create new conversation:', error);
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
+            });
+        } finally {
+            setIsUiLoading(false);
+        }
+    });
   };
 
   useEffect(() => {
@@ -98,40 +81,33 @@ export default function AppShell() {
   
     setIsUiLoading(true);
 
-    if (FORCE_TEST_MODE) {
-        console.log('[AppShell useEffect - TEST MODE] Test mode active, creating initial conversation.');
-        const defaultClient = activeAgentId === 'minutaMaker' ? CLIENTS[0].id : undefined;
-        handleCreateNewConversation(activeAgentId, defaultClient);
-        setIsUiLoading(false);
-    } else {
-        getHistoryAction(user.uid, activeAgentId)
-          .then(history => {
-            const historyWithDates = history.map(c => ({
-                ...c,
-                createdAt: new Date(c.createdAt),
-                messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
-            }));
-            setConversations(historyWithDates);
-      
-            if (historyWithDates.length > 0) {
-              setActiveConversationId(historyWithDates[0].id);
-            } else {
-              const defaultClient = activeAgentId === 'minutaMaker' ? CLIENTS[0].id : undefined;
-              handleCreateNewConversation(activeAgentId, defaultClient);
-            }
-          })
-          .catch(err => {
-            console.error("Failed to load history:", err);
-            toast({
-              variant: 'destructive',
-              title: 'Error',
-              description: 'No se pudo cargar el historial de conversaciones.',
-            });
-          })
-          .finally(() => {
-              setIsUiLoading(false);
-          });
-    }
+    getHistoryAction(user.uid, activeAgentId)
+      .then(history => {
+        const historyWithDates = history.map(c => ({
+            ...c,
+            createdAt: new Date(c.createdAt),
+            messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        }));
+        setConversations(historyWithDates);
+  
+        if (historyWithDates.length > 0) {
+          setActiveConversationId(historyWithDates[0].id);
+        } else {
+          const defaultClient = activeAgentId === 'minutaMaker' ? CLIENTS[0].id : undefined;
+          handleCreateNewConversation(activeAgentId, defaultClient);
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load history:", err);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'No se pudo cargar el historial de conversaciones.',
+        });
+      })
+      .finally(() => {
+          setIsUiLoading(false);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading, activeAgentId]);
 
@@ -155,6 +131,7 @@ export default function AppShell() {
 
     const optimisticUserMessage: Message = { id: `optimistic-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
     
+    // Optimistic UI update
     setConversations(prev =>
       prev.map(c =>
         c.id === activeConversationId
@@ -165,40 +142,22 @@ export default function AppShell() {
 
     startSendMessageTransition(async () => {
       try {
-        // The server action now correctly returns just the model's response message
-        const modelResponse = await sendMessageAction(
+        await sendMessageAction(
           activeConversationId,
           activeAgentId,
           message,
           activeConversation?.clientContext,
-          FORCE_TEST_MODE
         );
 
-        const modelMessage: Message = {
-            ...modelResponse,
-            createdAt: new Date(modelResponse.createdAt)
-        };
-
-        // In both test and prod, we just append the server's response.
-        setConversations(prev =>
-          prev.map(c =>
-            c.id === activeConversationId
-              ? { ...c, messages: [...c.messages, modelMessage] }
-              : c
-          )
-        );
-
-        // In prod mode, we can optionally refresh the whole history if needed, but this is more optimistic and faster.
-        if (!FORCE_TEST_MODE) {
-           // You might want to refresh the whole history to be perfectly in sync
-           const updatedHistory = await getHistoryAction(user.uid, activeAgentId);
-            const updatedHistoryWithDates = updatedHistory.map(c => ({
-              ...c,
-              createdAt: new Date(c.createdAt),
-              messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
-            }));
-            setConversations(updatedHistoryWithDates);
-        }
+        // After the action is successful, refresh the history to get the true state from the server.
+        // This ensures UI consistency and captures any server-side changes (like title updates).
+        const updatedHistory = await getHistoryAction(user.uid, activeAgentId);
+        const updatedHistoryWithDates = updatedHistory.map(c => ({
+          ...c,
+          createdAt: new Date(c.createdAt),
+          messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        }));
+        setConversations(updatedHistoryWithDates);
 
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -207,7 +166,7 @@ export default function AppShell() {
           title: 'Error',
           description: `No se pudo enviar el mensaje. ${error instanceof Error ? error.message : ''}`,
         });
-        // Rollback optimistic message
+        // Rollback optimistic message on error
         setConversations(prev =>
             prev.map(c =>
                 c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id)} : c
