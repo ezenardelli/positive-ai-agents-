@@ -43,18 +43,14 @@ export default function AppShell() {
   const handleCreateNewConversation = (agentIdToCreate: AgentId, clientContext?: string) => {
     if (!user) return;
     
-    // Set loading state true when creating a new conversation
     setIsUiLoading(true);
     startSendMessageTransition(async () => {
       try {
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-        const newConvoWithDates: Conversation = {
-          ...newConversation,
-          createdAt: new Date(newConversation.createdAt),
-          messages: newConversation.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) })),
-        };
-        setConversations(prev => [newConvoWithDates, ...prev]);
-        setActiveConversationId(newConvoWithDates.id);
+        // When creating a conversation, the dates are already Date objects.
+        // We only need to convert them when fetching from the server.
+        setConversations(prev => [newConversation, ...prev]);
+        setActiveConversationId(newConversation.id);
       } catch (error) {
         console.error('Failed to create new conversation:', error);
         toast({
@@ -63,7 +59,6 @@ export default function AppShell() {
           description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
         });
       } finally {
-        // Always set loading state to false after the operation
         setIsUiLoading(false);
       }
     });
@@ -95,8 +90,9 @@ export default function AppShell() {
            setIsUiLoading(false);
         } else {
           // No history for this user/agent, create a new conversation.
-          // The creation function will handle setting the loading state to false.
-          handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
+          // The creation function will handle setting the loading state.
+          const defaultClient = activeAgentId === 'minutaMaker' ? CLIENTS[0].id : undefined;
+          handleCreateNewConversation(activeAgentId, defaultClient);
         }
       })
       .catch(err => {
@@ -141,14 +137,14 @@ export default function AppShell() {
 
     startSendMessageTransition(async () => {
       try {
-        const responseMessage = await sendMessageAction(
+        await sendMessageAction(
           activeConversationId,
           activeAgentId,
           message,
           activeConversation?.clientContext
         );
         
-        // Fetch the latest state of the conversation, which now includes the persisted user message and the title if generated
+        // After sending, refresh the history to get the true state from the server
         const updatedHistory = await getHistoryAction(user.uid, activeAgentId);
         const updatedHistoryWithDates = updatedHistory.map(c => ({
           ...c,
@@ -156,14 +152,7 @@ export default function AppShell() {
           messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
         }));
         
-        // Find the current conversation in the updated history
-        const currentConvoFromServer = updatedHistoryWithDates.find(c => c.id === activeConversationId);
-        
-        setConversations(prevConvos => 
-          prevConvos.map(c => 
-            c.id === activeConversationId ? (currentConvoFromServer || c) : c
-          )
-        );
+        setConversations(updatedHistoryWithDates);
 
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -182,7 +171,7 @@ export default function AppShell() {
     });
   };
   
-  if (authLoading || (isUiLoading && user)) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -196,6 +185,7 @@ export default function AppShell() {
 
   // Combine UI loading and message sending into one state for simplicity in the UI
   const isProcessing = isUiLoading || isSendingMessage;
+  const activeClientContext = activeConversation?.clientContext || (activeAgent.needsClientContext ? CLIENTS[0].id : undefined);
 
   return (
     <SidebarProvider>
@@ -208,20 +198,26 @@ export default function AppShell() {
             activeConversationId={activeConversationId}
             onSelectAgent={handleSelectAgent}
             onSelectConversation={setActiveConversationId}
-            onNewConversation={() => handleCreateNewConversation(activeAgentId, activeConversation?.clientContext || CLIENTS[0].id)}
+            onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
             onLogout={logout}
             isLoading={isUiLoading}
           />
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-2">
-        <ChatInterface
-          key={activeConversationId} // Re-mount when conversation changes
-          agent={activeAgent}
-          conversation={activeConversation}
-          onSendMessage={handleSendMessage}
-          isLoading={isProcessing}
-          onNewConversation={() => handleCreateNewConversation(activeAgentId, activeConversation?.clientContext || CLIENTS[0].id)}
-        />
+        {isUiLoading && !activeConversation ? (
+           <div className="flex items-center justify-center h-full bg-card rounded-lg border">
+                <Loader2 className="w-12 h-12 animate-spin text-primary" />
+           </div>
+        ) : (
+            <ChatInterface
+              key={activeConversationId} // Re-mount when conversation changes
+              agent={activeAgent}
+              conversation={activeConversation}
+              onSendMessage={handleSendMessage}
+              isLoading={isProcessing}
+              onNewConversation={() => handleCreateNewConversation(activeAgentId, activeClientContext)}
+            />
+        )}
       </SidebarInset>
     </SidebarProvider>
   );
