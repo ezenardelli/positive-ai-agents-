@@ -20,12 +20,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { Loader2 } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import { useRouter } from 'next/navigation';
 
 const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 
 export default function AppShell() {
   const { user, loading: authLoading, logout } = useAuth();
+  const router = useRouter();
   
   const [agents] = useState<Agent[]>(AGENTS);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -68,28 +70,42 @@ export default function AppShell() {
 
 
    useEffect(() => {
-    if (user) {
-      setIsLoading(true);
-      getHistoryAction(user.uid).then(history => {
-        setConversations(history);
-        const agentConversations = history.filter(c => c.agentId === activeAgentId);
-        if (agentConversations.length > 0) {
-          setActiveConversationId(agentConversations[0].id);
-        } else {
-          // Do not create a new conversation automatically, wait for user action
-        }
-      }).catch(err => {
-        console.error("Failed to load history:", err);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'No se pudo cargar el historial de conversaciones.',
-        });
-      }).finally(() => {
+    if (isTestMode) {
         setIsLoading(false);
-      });
+        if (!conversations.length) {
+            handleCreateNewConversation(activeAgentId);
+        }
+        return;
     }
-  }, [user, activeAgentId]);
+    
+    if (authLoading) return;
+    
+    if (!user) {
+        router.replace('/login');
+        return;
+    }
+
+    setIsLoading(true);
+    getHistoryAction(user.uid).then(history => {
+    setConversations(history);
+    const agentConversations = history.filter(c => c.agentId === activeAgentId);
+    if (agentConversations.length > 0) {
+        setActiveConversationId(agentConversations[0].id);
+    } else {
+        // Automatically create a new conversation if none exist for the selected agent
+        handleCreateNewConversation(activeAgentId);
+    }
+    }).catch(err => {
+    console.error("Failed to load history:", err);
+    toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'No se pudo cargar el historial de conversaciones.',
+    });
+    }).finally(() => {
+    setIsLoading(false);
+    });
+  }, [user, activeAgentId, authLoading]);
 
 
   const activeAgent = agents.find(a => a.id === activeAgentId)!;
@@ -132,33 +148,21 @@ export default function AppShell() {
         setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-               // Replace the optimistic message with the final one from the server action if needed, or just add the new one.
                const newMessages = c.messages.filter(m => m !== optimisticMessage);
                newMessages.push(optimisticMessage, responseMessage);
-               // Also update the title if it's a new conversation
-                if (c.title === 'Nueva Conversación') {
-                    const updatedTitle = message.substring(0, 20) + '...';
-                    return { ...c, messages: newMessages, title: updatedTitle };
+                if (isTestMode) {
+                     return { ...c, messages: newMessages, title: 'Conversación de prueba' };
                 }
+                 // Fetch latest history to get the new title
+                getHistoryAction(user.uid).then(updatedHistory => {
+                    setConversations(updatedHistory);
+                    setActiveConversationId(activeConversationId);
+                });
                return { ...c, messages: newMessages };
             }
             return c;
           })
         );
-        
-        if (!isTestMode) {
-          const updatedHistory = await getHistoryAction(user.uid);
-          setConversations(updatedHistory);
-          setActiveConversationId(activeConversationId);
-        } else {
-            setConversations(prev => prev.map(c => {
-                if (c.id === activeConversationId && c.title === 'Nueva Conversación') {
-                    return {...c, title: `Conversación de prueba`}
-                }
-                return c;
-            }));
-        }
-
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -175,7 +179,7 @@ export default function AppShell() {
     });
   };
   
-  if (authLoading) {
+  if (authLoading && !isTestMode) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
