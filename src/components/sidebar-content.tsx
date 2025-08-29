@@ -27,6 +27,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 import { AGENTS, CLIENTS } from '@/lib/data';
 
