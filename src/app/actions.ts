@@ -143,7 +143,9 @@ export async function createConversationAction(
       createdAt: new Date(),
     };
     mockConversations.unshift(newConversation); // Add to the beginning
-    return Promise.resolve(JSON.parse(JSON.stringify(newConversation)));
+    // The problem was JSON.stringify which doesn't handle Dates correctly.
+    // Return a plain object. The client receives it as a plain object anyway.
+    return newConversation; 
   }
   return await createConversation(userId, agentId, clientContext);
 }

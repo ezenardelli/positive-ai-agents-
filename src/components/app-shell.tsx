@@ -25,7 +25,7 @@ import LoginPage from './login-page';
 // MODO DE PRUEBA: Cambia este valor para alternar entre modos.
 // `true`: Omite el login de Firebase y usa un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real de Google con Firebase. (Para producción)
-// =================================e=================================================
+// =================================================================================
 const FORCE_TEST_MODE = true;
 
 export default function AppShell() {
@@ -46,8 +46,14 @@ export default function AppShell() {
     startSendMessageTransition(async () => {
       try {
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
-        setConversations(prev => [newConversation, ...prev]);
-        setActiveConversationId(newConversation.id);
+        // The dates from the server action are plain strings, so we need to convert them back to Date objects
+        const newConvoWithDates: Conversation = {
+          ...newConversation,
+          createdAt: new Date(newConversation.createdAt),
+          messages: newConversation.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) })),
+        };
+        setConversations(prev => [newConvoWithDates, ...prev]);
+        setActiveConversationId(newConvoWithDates.id);
       } catch (error) {
         console.error('Failed to create new conversation:', error);
         toast({
@@ -73,13 +79,18 @@ export default function AppShell() {
     setIsUiLoading(true);
     getHistoryAction(user.uid, activeAgentId)
       .then(history => {
-        setConversations(history);
+        // The dates from the server action are plain strings, so we need to convert them back to Date objects
+        const historyWithDates = history.map(c => ({
+            ...c,
+            createdAt: new Date(c.createdAt),
+            messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        }));
+        setConversations(historyWithDates);
   
-        if (history.length > 0) {
-          setActiveConversationId(history[0].id);
+        if (historyWithDates.length > 0) {
+          setActiveConversationId(historyWithDates[0].id);
         } else {
           // No history for this user/agent, create a new conversation.
-          // This will also handle the initial case for a test user.
           handleCreateNewConversation(activeAgentId, CLIENTS[0].id);
         }
       })
@@ -132,6 +143,12 @@ export default function AppShell() {
           message,
           activeConversation?.clientContext
         );
+
+        // The date from the server action is a plain string, convert it
+        const responseMessageWithDate: Message = {
+            ...responseMessage,
+            createdAt: new Date(responseMessage.createdAt),
+        }
         
         setConversations(prev =>
           prev.map(c => {
@@ -140,14 +157,19 @@ export default function AppShell() {
                // and add the model's response.
                const newMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
                newMessages.push(optimisticUserMessage); // Or the real user message if returned
-               newMessages.push(responseMessage);
+               newMessages.push(responseMessageWithDate);
                
                // Auto-update title on first real model response
-               if (c.messages.length < 2) { 
+               if (c.messages.length < 2 && user) { 
                  getHistoryAction(user.uid, activeAgentId).then(updatedHistory => {
                     const freshConvo = updatedHistory.find(uh => uh.id === c.id);
                     if (freshConvo) {
-                        setConversations(currentConvos => currentConvos.map(cc => cc.id === c.id ? freshConvo : cc));
+                         const freshConvoWithDates: Conversation = {
+                            ...freshConvo,
+                            createdAt: new Date(freshConvo.createdAt),
+                            messages: freshConvo.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) })),
+                         };
+                        setConversations(currentConvos => currentConvos.map(cc => cc.id === c.id ? freshConvoWithDates : cc));
                     }
                  });
                }
@@ -174,7 +196,7 @@ export default function AppShell() {
     });
   };
   
-  if (authLoading) {
+  if (authLoading || (isUiLoading && !user)) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
