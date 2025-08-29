@@ -30,7 +30,7 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
 
-  if (!isTestMode) {
+  if (!isTestMode && conversationId) {
       const userMessage: Message = {
         role: 'user',
         content: messageContent,
@@ -48,7 +48,6 @@ export async function sendMessageAction(
 
   try {
     if (agentId === 'minutaMaker') {
-      // In test mode, we might not have a real client ID or past participants.
       const clientId = clientContext || 'mock-client';
       const pastParticipants = isTestMode ? [] : (await suggestParticipants({ clientId })).suggestedParticipants;
       
@@ -76,7 +75,7 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  if (!isTestMode) {
+  if (!isTestMode && conversationId) {
     await addMessage(conversationId, modelMessage);
 
     const conversation = await getConversation(conversationId);
