@@ -29,7 +29,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = true;
+const FORCE_TEST_MODE = false;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
@@ -60,8 +60,9 @@ export default function AppShell() {
             };
         } else {
             console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
+            // The action now returns a full Conversation object, ready to be used.
             const createdConvo = await createConversationAction(user.uid, 'posiAgent');
-            newConversation = {
+             newConversation = {
                 ...createdConvo,
                 createdAt: new Date(createdConvo.createdAt),
                 messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
@@ -98,7 +99,9 @@ export default function AppShell() {
 
     if (FORCE_TEST_MODE) {
         console.log("[AppShell Test Mode] Starting in test mode. Auto-creating first conversation.");
-        handleCreateNewConversation();
+        if (conversations.length === 0) {
+            handleCreateNewConversation();
+        }
         setIsUiLoading(false);
         return;
     }
@@ -130,6 +133,7 @@ export default function AppShell() {
       .finally(() => {
           setIsUiLoading(false);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
@@ -147,42 +151,60 @@ export default function AppShell() {
             : c
     );
     setConversations(newConversations);
+    
     const currentMessages = newConversations.find(c => c.id === forConversation.id)?.messages ?? [];
 
     startSendMessageTransition(async () => {
       try {
-        const modelResponse = await sendMessageAction(
-          forConversation.id,
-          forConversation.agentId,
-          message,
-          forConversation.clientContext,
-          FORCE_TEST_MODE,
-          currentMessages
-        );
+        if (!FORCE_TEST_MODE) {
+            const modelResponse = await sendMessageAction(
+              forConversation.id,
+              forConversation.agentId,
+              message,
+              forConversation.clientContext,
+              false,
+              currentMessages
+            );
 
-         // Final state update with model's response
-         setConversations(prev =>
-              prev.map(c => {
-                  if (c.id === forConversation.id) {
-                      // Replace optimistic message with the real one and add model response
-                      const finalMessages = c.messages.filter(m => m.id !== optimisticUserMessage.id);
-                      finalMessages.push({ ...optimisticUserMessage, id: `user-${Date.now()}` }, {...modelResponse, createdAt: new Date(modelResponse.createdAt)});
-                      
-                      // Also, update the title if it's the first exchange and title is default
-                      let newTitle = c.title;
-                      if (finalMessages.length === 2 && (c.title === 'Nueva Conversación' || !c.title)) {
-                         const potentialTitle = message.substring(0, 30) + "...";
-                         newTitle = potentialTitle;
-                         // Async title update in backend if not in test mode
-                         if (!FORCE_TEST_MODE) {
-                           updateConversationTitleAction(c.id, newTitle);
-                         }
-                      }
-                      return { ...c, messages: finalMessages, title: newTitle };
-                  }
-                  return c;
-              })
-          );
+            // Once we have the real response, we get the updated conversation from the DB
+            // to ensure our local state is perfectly in sync.
+            const updatedConversation = await getHistoryAction(user.uid); // Re-fetch all, simpler than merging
+            const updatedConversationsWithDates = updatedConversation.map(c => ({
+                ...c,
+                createdAt: new Date(c.createdAt),
+                messages: c.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) }))
+            }));
+            setConversations(updatedConversationsWithDates);
+
+        } else { // Test mode logic remains the same
+             const modelResponse = await sendMessageAction(
+                forConversation.id,
+                forConversation.agentId,
+                message,
+                forConversation.clientContext,
+                true,
+                currentMessages
+            );
+            
+            // Final state update with model's response for test mode
+            setConversations(prev =>
+                prev.map(c => {
+                    if (c.id === forConversation.id) {
+                        const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id),
+                            { ...optimisticUserMessage, id: `user-${Date.now()}` }, // "commit" the optimistic message
+                            { ...modelResponse, createdAt: new Date(modelResponse.createdAt) }
+                        ];
+                        
+                        let newTitle = c.title;
+                        if (finalMessages.length === 2 && (c.title === 'Nueva Conversación' || !c.title)) {
+                            newTitle = message.substring(0, 30) + "...";
+                        }
+                        return { ...c, messages: finalMessages, title: newTitle };
+                    }
+                    return c;
+                })
+            );
+        }
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -207,17 +229,18 @@ export default function AppShell() {
         c.id === conversationId ? { ...c, agentId: newAgentId, clientContext: newClientContext || undefined, messages: [] } : c
       )
     );
-
-    updateConversationContextAction(conversationId, newAgentId, newClientContext, FORCE_TEST_MODE)
-      .catch(err => {
-        console.error("Failed to update context in DB:", err);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'No se pudo guardar el cambio de contexto.',
+    if (!FORCE_TEST_MODE) {
+        updateConversationContextAction(conversationId, newAgentId, newClientContext, false)
+        .catch(err => {
+            console.error("Failed to update context in DB:", err);
+            toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'No se pudo guardar el cambio de contexto.',
+            });
+            // NOTE: Could add rollback logic here if needed
         });
-        // NOTE: Could add rollback logic here if needed
-      });
+    }
   };
   
   const handleEditTitle = async (conversationId: string, currentTitle: string | null) => {
@@ -322,3 +345,5 @@ export default function AppShell() {
     </SidebarProvider>
   );
 }
+
+    
