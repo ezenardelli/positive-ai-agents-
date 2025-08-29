@@ -77,9 +77,10 @@ export async function saveMinute(
 const conversationFromDoc = (docSnapshot: any): Conversation => {
     const data = docSnapshot.data();
     // Safely convert conversation createdAt timestamp
+    // If it's a serverTimestamp, it might be null on the client initially.
     const conversationCreatedAt = data.createdAt instanceof Timestamp 
         ? data.createdAt.toDate() 
-        : new Date(); // Fallback to current date if timestamp is not valid yet
+        : new Date(); // Fallback to current date
 
     // Safely convert messages createdAt timestamps
     const messages = (data.messages || []).map((msg: any) => ({
@@ -105,14 +106,21 @@ const conversationFromDoc = (docSnapshot: any): Conversation => {
 export async function getConversations(userId: string): Promise<Conversation[]> {
     try {
         const convosRef = collection(db, 'conversations');
-        const q = query(convosRef, where('userId', '==', userId), orderBy('createdAt', 'desc'));
+        // Simple query that doesn't require a custom index.
+        // Sorting will be handled on the client-side.
+        const q = query(convosRef, where('userId', '==', userId));
         const querySnapshot = await getDocs(q);
         return querySnapshot.docs.map(conversationFromDoc);
     } catch (error) {
         console.error("Error fetching conversations:", error);
+        // This specific error message indicates a missing index.
+        if (error instanceof Error && error.message.includes("requires an index")) {
+            console.error("FIRESTORE INDEX REQUIRED: Please create the necessary composite index in your Firebase console.");
+            throw new Error(`Error de base de datos: Se requiere un índice de Firestore que no existe. Por favor, créalo en la consola de Firebase.`);
+        }
         // If the collection doesn't exist, getDocs() throws. We'll return an empty array.
-        if (error instanceof Error && (error.message.includes("does not exist") || error.message.includes("needs an index"))) {
-            console.warn("Conversations collection or index may not exist yet. This is normal on first run.");
+        if (error instanceof Error && (error.message.includes("does not exist"))) {
+            console.warn("Conversations collection may not exist yet. This is normal on first run.");
             return [];
         }
         throw error;
@@ -133,16 +141,15 @@ export async function getConversation(conversationId: string): Promise<Conversat
 
 /**
  * Creates a new conversation in Firestore.
- * This will implicitly create the 'conversations' collection if it doesn't exist.
  */
 export async function createConversation(userId: string, agentId: AgentId): Promise<Conversation> {
     const newConvoData = {
         userId,
         agentId,
         clientContext: null,
-        title: null, // Title is generated after the first exchange
+        title: null,
         messages: [],
-        createdAt: serverTimestamp(),
+        createdAt: serverTimestamp(), // Use serverTimestamp for consistency
     };
     try {
         const docRef = await addDoc(collection(db, 'conversations'), newConvoData);
@@ -160,11 +167,9 @@ export async function createConversation(userId: string, agentId: AgentId): Prom
  */
 export async function addMessage(conversationId: string, message: Message): Promise<void> {
     const convoRef = doc(db, 'conversations', conversationId);
-    // Firestore security rules will ensure the user can only write to their own conversations.
     await updateDoc(convoRef, {
         messages: arrayUnion({
             ...message,
-            // Convert JS Date back to Firestore Timestamp for storage
             createdAt: Timestamp.fromDate(message.createdAt)
         })
     });
@@ -186,13 +191,11 @@ export async function updateConversation(conversationId: string, data: Partial<C
     const convoRef = doc(db, 'conversations', conversationId);
     const batch = writeBatch(db);
     
-    // Update the agentId and clientContext
     batch.update(convoRef, {
         agentId: data.agentId,
         clientContext: data.clientContext,
     });
 
-    // Clear the messages array
     if (data.messages !== undefined) {
         batch.update(convoRef, {
             messages: []

@@ -41,47 +41,52 @@ export default function AppShell() {
 
   const { toast } = useToast();
   
+  // Determine if we are in test mode based on the flag OR if there's no real user.
   const isTestMode = FORCE_TEST_MODE || !user || user.uid.startsWith('mock-');
 
+  // Unified function to create a new conversation
   const handleCreateNewConversation = async (): Promise<Conversation | undefined> => {
     if (!user) return;
     
     setIsUiLoading(true);
     try {
-        let newConversation: Conversation;
-        if (isTestMode) {
-            console.log("[AppShell Test Mode] Creating new MOCK conversation (Client-side)");
-            newConversation = {
-                id: `mock_convo_${Date.now()}`,
-                userId: user.uid,
-                agentId: 'posiAgent', // Default agent
-                clientContext: undefined,
-                messages: [],
-                title: 'Nueva Conversación',
-                createdAt: new Date(),
-            };
-        } else {
-            console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
-            const createdConvo = await createConversationAction(user.uid, 'posiAgent');
-             newConversation = {
-                ...createdConvo,
-                createdAt: new Date(createdConvo.createdAt),
-                messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
-            };
-        }
-        setConversations(prev => [newConversation, ...prev]);
-        setActiveConversationId(newConversation.id);
-        return newConversation;
+      let newConversation: Conversation;
+      if (isTestMode) {
+        console.log("[AppShell Test Mode] Creating new MOCK conversation (Client-side)");
+        newConversation = {
+          id: `mock_convo_${Date.now()}`,
+          userId: user.uid,
+          agentId: 'posiAgent', // Default agent
+          clientContext: undefined,
+          messages: [],
+          title: 'Nueva Conversación',
+          createdAt: new Date(),
+        };
+      } else {
+        console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
+        const createdConvo = await createConversationAction(user.uid, 'posiAgent');
+        // Convert server timestamps to Date objects
+        newConversation = {
+          ...createdConvo,
+          createdAt: new Date(createdConvo.createdAt),
+          messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        };
+      }
+      
+      setConversations(prev => [newConversation, ...prev]);
+      setActiveConversationId(newConversation.id);
+      return newConversation;
+
     } catch (error) {
-        console.error('Failed to create new conversation:', error);
-        toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
-        });
-        return undefined;
+      console.error('Failed to create new conversation:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: `No se pudo crear una nueva conversación. ${error instanceof Error ? error.message : ''}`,
+      });
+      return undefined;
     } finally {
-        setIsUiLoading(false);
+      setIsUiLoading(false);
     }
   };
 
@@ -107,13 +112,16 @@ export default function AppShell() {
         return;
     }
 
+    // This is the production logic
     getHistoryAction(user.uid)
       .then(history => {
+        // Convert all Firestore Timestamps to JS Dates
         const historyWithDates = history.map(c => ({
-            ...c,
-            createdAt: new Date(c.createdAt),
-            messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
-        }));
+          ...c,
+          createdAt: new Date(c.createdAt),
+          messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        })).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // Sort on client
+        
         setConversations(historyWithDates);
   
         if (historyWithDates.length > 0) {
@@ -139,67 +147,65 @@ export default function AppShell() {
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
-
   const handleSendMessage = (message: string, forConversation: Conversation) => {
     if (!user) return;
-
+  
+    // Optimistic UI update
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
-    
-    const newConversations = conversations.map(c =>
-        c.id === forConversation.id
-            ? { ...c, messages: [...c.messages, optimisticUserMessage] }
-            : c
+    const updatedConversationsWithUser = conversations.map(c =>
+      c.id === forConversation.id
+        ? { ...c, messages: [...c.messages, optimisticUserMessage] }
+        : c
     );
-    setConversations(newConversations);
+    setConversations(updatedConversationsWithUser);
     
-    const currentMessages = newConversations.find(c => c.id === forConversation.id)?.messages ?? [];
-
     startSendMessageTransition(async () => {
       try {
+        if (isTestMode) {
+          const modelResponse: Message = {
+            id: `msg-model-${Date.now()}`,
+            role: 'model',
+            content: 'Esta es una respuesta simulada en modo de prueba.',
+            createdAt: new Date(),
+          };
+          setConversations(prev =>
+            prev.map(c => {
+              if (c.id === forConversation.id) {
+                const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
+                const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, modelResponse];
+                let newTitle = c.title;
+                if (finalMessages.length <= 2 && (c.title === 'Nueva Conversación' || !c.title)) {
+                  newTitle = message.substring(0, 30) + "...";
+                }
+                return { ...c, messages: finalMessages, title: newTitle };
+              }
+              return c;
+            })
+          );
+          return;
+        }
+  
+        // Production logic
+        const currentMessages = conversations.find(c => c.id === forConversation.id)?.messages ?? [];
         await sendMessageAction(
           forConversation.id,
           forConversation.agentId,
           message,
           forConversation.clientContext,
-          isTestMode,
-          currentMessages
+          false, // isTestMode is always false here
+          currentMessages,
         );
         
-        if (!isTestMode) {
-            // Re-fetch history to ensure perfect sync
-            const updatedConversations = await getHistoryAction(user.uid); 
-            const updatedConversationsWithDates = updatedConversations.map(c => ({
-                ...c,
-                createdAt: new Date(c.createdAt),
-                messages: c.messages.map(m => ({ ...m, createdAt: new Date(m.createdAt) }))
-            }));
-            setConversations(updatedConversationsWithDates);
-        } else { 
-            // In test mode, we just simulate the response.
-            const modelResponse: Message = {
-                id: `msg-model-${Date.now()}`,
-                role: 'model',
-                content: 'Esta es una respuesta simulada en modo de prueba.',
-                createdAt: new Date(),
-            };
+        // Re-fetch history to ensure perfect sync with the database state
+        // This is the most robust way to ensure consistency
+        const updatedHistory = await getHistoryAction(user.uid);
+        const historyWithDates = updatedHistory.map(c => ({
+            ...c,
+            createdAt: new Date(c.createdAt),
+            messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+        })).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        setConversations(historyWithDates);
 
-            setConversations(prev =>
-                prev.map(c => {
-                    if (c.id === forConversation.id) {
-                        const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
-                        const finalModelMessage = { ...modelResponse };
-                        const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, finalModelMessage];
-                        
-                        let newTitle = c.title;
-                        if (finalMessages.length === 2 && (c.title === 'Nueva Conversación' || !c.title)) {
-                            newTitle = message.substring(0, 30) + "...";
-                        }
-                        return { ...c, messages: finalMessages, title: newTitle };
-                    }
-                    return c;
-                })
-            );
-        }
       } catch (error) {
         console.error('Failed to send message:', error);
         toast({
@@ -209,31 +215,29 @@ export default function AppShell() {
         });
         // Rollback optimistic message on error
         setConversations(prev =>
-            prev.map(c =>
-                c.id === forConversation.id ? {...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id)} : c
-            )
+          prev.map(c =>
+            c.id === forConversation.id ? { ...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id) } : c
+          )
         );
       }
     });
   };
 
   const handleContextChange = (conversationId: string, newAgentId: AgentId, newClientContext: string | null) => {
-    // Update the local state optimistically
     setConversations(prev =>
       prev.map(c =>
         c.id === conversationId ? { ...c, agentId: newAgentId, clientContext: newClientContext || undefined, messages: [] } : c
       )
     );
     if (!isTestMode) {
-        updateConversationContextAction(conversationId, newAgentId, newClientContext, false)
+      updateConversationContextAction(conversationId, newAgentId, newClientContext, false)
         .catch(err => {
-            console.error("Failed to update context in DB:", err);
-            toast({
+          console.error("Failed to update context in DB:", err);
+          toast({
             variant: 'destructive',
             title: 'Error',
             description: 'No se pudo guardar el cambio de contexto.',
-            });
-            // NOTE: Could add rollback logic here if needed
+          });
         });
     }
   };
@@ -242,19 +246,14 @@ export default function AppShell() {
     const newTitle = prompt("Ingresa el nuevo nombre para la conversación:", currentTitle ?? "");
     if (newTitle && newTitle.trim() !== (currentTitle ?? "")) {
         const finalTitle = newTitle.trim();
-        // Optimistic UI update
+        const originalConversations = conversations;
         setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: finalTitle } : c));
 
         if (!isTestMode) {
             const { success, error } = await updateConversationTitleAction(conversationId, finalTitle);
             if (!success) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Error',
-                    description: `No se pudo actualizar el nombre. ${error}`,
-                });
-                // Rollback
-                setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: currentTitle ?? null } : c));
+                toast({ variant: 'destructive', title: 'Error', description: `No se pudo actualizar el nombre. ${error}` });
+                setConversations(originalConversations); // Rollback
             }
         }
     }
@@ -263,13 +262,13 @@ export default function AppShell() {
   const handleDeleteConversation = async (conversationId: string) => {
     if (confirm("¿Estás seguro de que quieres eliminar esta conversación? Esta acción no se puede deshacer.")) {
         const originalConversations = conversations;
-        // Optimistic UI update
         const newConversations = conversations.filter(c => c.id !== conversationId);
         setConversations(newConversations);
 
         if (activeConversationId === conversationId) {
-             setActiveConversationId(newConversations.length > 0 ? newConversations[0].id : null);
-             if (newConversations.length === 0) {
+             const nextConversation = newConversations.length > 0 ? newConversations[0] : null;
+             setActiveConversationId(nextConversation ? nextConversation.id : null);
+             if (!nextConversation) {
                 handleCreateNewConversation();
              }
         }
@@ -277,13 +276,8 @@ export default function AppShell() {
         if (!isTestMode) {
             const { success, error } = await deleteConversationAction(conversationId);
             if (!success) {
-                toast({
-                    variant: 'destructive',
-                    title: 'Error',
-                    description: `No se pudo eliminar la conversación. ${error}`,
-                });
-                // Rollback on failure
-                setConversations(originalConversations);
+                toast({ variant: 'destructive', title: 'Error', description: `No se pudo eliminar la conversación. ${error}` });
+                setConversations(originalConversations); // Rollback
             }
         }
     }
@@ -298,7 +292,7 @@ export default function AppShell() {
     );
   }
 
-  if (!user) {
+  if (!user && !isTestMode) {
     return <LoginPage login={login} />
   }
 
