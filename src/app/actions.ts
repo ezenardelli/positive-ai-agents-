@@ -16,20 +16,22 @@ import {
   updateConversationTitle
 } from '@/services/firestore-service';
 
-// Use the presence of Firebase credentials to determine if we are in production
 const isProduction = !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
-// Mock database for test mode
+// Mock database for test mode (non-production)
 let mockConversations: Conversation[] = [];
 let conversationIdCounter = 0;
 
 
-export async function getHistoryAction(userId: string): Promise<Conversation[]> {
+export async function getHistoryAction(userId: string, agentId: AgentId): Promise<Conversation[]> {
   if (!isProduction) {
-    // Return a copy to prevent mutation issues
-    return Promise.resolve(JSON.parse(JSON.stringify(mockConversations.filter(c => c.userId === userId))));
+    // In test mode, return only conversations for the active agent
+    const agentHistory = mockConversations.filter(c => c.userId === userId && c.agentId === agentId);
+    return Promise.resolve(JSON.parse(JSON.stringify(agentHistory)));
   }
-  return await getConversations(userId);
+  // In production, fetch from Firestore and then filter
+  const allConversations = await getConversations(userId);
+  return allConversations.filter(c => c.agentId === agentId);
 }
 
 export async function sendMessageAction(
@@ -39,30 +41,22 @@ export async function sendMessageAction(
   clientContext?: string
 ): Promise<Message> {
 
-  let userMessage: Message;
+  const userMessage: Message = {
+    id: `msg-${Date.now()}`,
+    role: 'user',
+    content: messageContent,
+    createdAt: new Date(),
+  };
 
-  // In production, save the user message to Firestore
-  if (isProduction && conversationId) {
-      userMessage = {
-        role: 'user',
-        content: messageContent,
-        createdAt: new Date(),
-      };
+  // Persist user message
+  if (isProduction) {
       await addMessage(conversationId, userMessage);
-  } else if (!isProduction) {
-    // In test mode, add to mock DB
-     userMessage = {
-        id: `msg-${Date.now()}`,
-        role: 'user',
-        content: messageContent,
-        createdAt: new Date(),
-      };
+  } else {
     const convo = mockConversations.find(c => c.id === conversationId);
     if(convo) {
       convo.messages.push(userMessage);
     }
   }
-
 
   let responseContent = '';
   const modelMessage: Message = {
@@ -105,23 +99,24 @@ export async function sendMessageAction(
   
   modelMessage.content = responseContent;
 
-  if (isProduction && conversationId) {
+  if (isProduction) {
     await addMessage(conversationId, modelMessage);
 
     const conversation = await getConversation(conversationId);
-    if (conversation && conversation.messages.length <= 2) { 
+    // Title generation only on the second message (first user, first model)
+    if (conversation && conversation.messages.length === 2) { 
       const { title } = await generateConversationTitle({
-        messages: conversation.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
+        messages: conversation.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
       });
       await updateConversationTitle(conversationId, title);
     }
-  } else if (!isProduction) {
+  } else {
     const convo = mockConversations.find(c => c.id === conversationId);
     if (convo) {
       convo.messages.push(modelMessage);
-      if(convo.messages.length <= 2) {
+      if(convo.messages.length === 2) {
         const { title } = await generateConversationTitle({
-            messages: convo.messages.map(m => ({...m, createdAt: m.createdAt.toISOString()})),
+            messages: convo.messages.map(m => ({...m, role: m.role, content: m.content, createdAt: m.createdAt.toISOString()})),
         });
         convo.title = title;
       }
