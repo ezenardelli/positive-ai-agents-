@@ -51,8 +51,13 @@ export default function AppShell() {
       try {
         // Find an appropriate client context if needed
         const activeAgent = agents.find(a => a.id === agentIdToCreate);
-        const clientContext = activeAgent?.needsClientContext ? conversations.find(c => c.agentId === agentIdToCreate)?.clientContext : undefined;
+        let clientContext: string | undefined;
 
+        if (activeAgent?.needsClientContext) {
+           const existingContext = conversations.find(c => c.agentId === agentIdToCreate)?.clientContext;
+           clientContext = existingContext || 'cliente_A'; // Default to first client if none found
+        }
+        
         const newConversation = await createConversationAction(user.uid, agentIdToCreate, clientContext);
         setConversations(prev => [newConversation, ...prev]);
         setActiveConversationId(newConversation.id);
@@ -110,17 +115,19 @@ export default function AppShell() {
   };
 
   const handleSendMessage = (message: string, clientContext?: string) => {
-    if (!activeConversationId) return;
+    if (!activeConversationId || !user) return;
 
     const optimisticMessage: Message = { role: 'user', content: message, createdAt: new Date() };
     
     // Optimistically update UI
-    const newConversations = conversations.map(c =>
-        c.id === activeConversationId
-            ? { ...c, messages: [...c.messages, optimisticMessage] }
-            : c
+    setConversations(prev =>
+        prev.map(c =>
+            c.id === activeConversationId
+                ? { ...c, messages: [...c.messages, optimisticMessage] }
+                : c
+        )
     );
-    setConversations(newConversations);
+
 
     startTransition(async () => {
       try {
@@ -131,32 +138,38 @@ export default function AppShell() {
           clientContext
         );
 
-        // Update with final server response
-         setConversations(prev =>
+        setConversations(prev =>
           prev.map(c => {
             if (c.id === activeConversationId) {
-              // Replace optimistic message with the final one from the server perspective
-              const finalMessages = [...c.messages.slice(0, -1), optimisticMessage, responseMessage];
-               return { ...c, messages: finalMessages };
+                // Replace optimistic message with final user message from server and add model response
+               const newMessages = [...c.messages];
+               // Find and remove the optimistic message
+               const optimisticIndex = newMessages.findIndex(m => m === optimisticMessage);
+               if (optimisticIndex > -1) {
+                   newMessages.splice(optimisticIndex, 1);
+               }
+               // Add the user message (now confirmed) and the model's response
+               return { ...c, messages: [...newMessages, optimisticMessage, responseMessage] };
             }
             return c;
           })
         );
-
+        
+        // After receiving a response, if we are in production, refetch history to get latest title
         if (!isTestMode) {
-          // In real mode, we fetch history to get the latest state including the title update
-          const updatedHistory = await getHistoryAction(user!.uid);
+          const updatedHistory = await getHistoryAction(user.uid);
           setConversations(updatedHistory);
+          // Make sure the active conversation is still selected
+          setActiveConversationId(activeConversationId);
         } else {
-            // In test mode, we just add the response and maybe update title locally
+             // In test mode, we just add the response and maybe update title locally
             setConversations(prev => prev.map(c => {
-                if (c.id === activeConversationId && c.messages.length <= 2) {
+                if (c.id === activeConversationId && c.messages.length <= 2) { // Title for first exchange
                     return {...c, title: `Conversación sobre "${message.substring(0, 20)}..."`}
                 }
                 return c;
             }));
         }
-
 
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -168,7 +181,7 @@ export default function AppShell() {
         // Rollback optimistic update
         setConversations(prev =>
             prev.map(c =>
-                c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m.content !== optimisticMessage.content)} : c
+                c.id === activeConversationId ? {...c, messages: c.messages.filter(m => m !== optimisticMessage)} : c
             )
         );
       }

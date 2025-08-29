@@ -8,20 +8,19 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
+const isTestMode = !process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
   const router = useRouter();
 
  useEffect(() => {
-    // In testing mode with a mock user, we can redirect immediately.
-    // In a real scenario, this would check for an actual user object.
     if (user) {
       router.replace('/');
     }
   }, [user, router]);
 
-  // Show a loader while redirecting
-  if (user) {
+  if (loading || user) {
      return (
       <div className="flex items-center justify-center h-screen bg-background">
         <Loader2 className="w-12 h-12 animate-spin text-primary" />
@@ -29,7 +28,6 @@ export default function LoginPage() {
     );
   }
 
-  // This part will likely not be seen when auth is mocked, but is kept for when we re-enable it.
   return (
     <main className="flex items-center justify-center min-h-screen bg-background p-4">
       <Card className="w-full max-w-sm shadow-xl border">
@@ -42,11 +40,10 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Button onClick={login} className="w-full" size="lg">
-            <GoogleIcon className="mr-2 h-5 w-5" />
-            Ingresar con Google
+             {isTestMode ? 'Ingresar (Modo Prueba)' : <> <GoogleIcon className="mr-2 h-5 w-5" /> Ingresar con Google </>}
           </Button>
           <p className="text-xs text-center text-muted-foreground px-4">
-            Acceso restringido a empleados de Positive IT (@positiveit.com.ar)
+             {isTestMode ? 'Estás en modo de prueba. No se requiere autenticación.' : 'Acceso restringido a empleados de Positive IT (@positiveit.com.ar)'}
           </p>
         </CardContent>
       </Card>
