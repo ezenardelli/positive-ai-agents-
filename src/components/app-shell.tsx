@@ -29,7 +29,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = false;
+const FORCE_TEST_MODE = true;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
@@ -42,7 +42,7 @@ export default function AppShell() {
   const { toast } = useToast();
   
   // Determine if we are in test mode based on the flag OR if there's no real user.
-  const isTestMode = FORCE_TEST_MODE || !user || user.uid.startsWith('mock-');
+  const isTestMode = FORCE_TEST_MODE || !user || (user && user.uid.startsWith('mock-'));
 
   // Unified function to create a new conversation
   const handleCreateNewConversation = async (): Promise<Conversation | undefined> => {
@@ -68,8 +68,8 @@ export default function AppShell() {
         // Convert server timestamps to Date objects
         newConversation = {
           ...createdConvo,
-          createdAt: new Date(createdConvo.createdAt),
-          messages: createdConvo.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+          createdAt: createdConvo.createdAt ? new Date(createdConvo.createdAt) : new Date(),
+          messages: (createdConvo.messages || []).map(m => ({...m, createdAt: m.createdAt ? new Date(m.createdAt) : new Date() }))
         };
       }
       
@@ -118,8 +118,8 @@ export default function AppShell() {
         // Convert all Firestore Timestamps to JS Dates
         const historyWithDates = history.map(c => ({
           ...c,
-          createdAt: new Date(c.createdAt),
-          messages: c.messages.map(m => ({...m, createdAt: new Date(m.createdAt)}))
+          createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
+          messages: (c.messages || []).map(m => ({...m, createdAt: m.createdAt ? new Date(m.createdAt) : new Date()}))
         })).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // Sort on client
         
         setConversations(historyWithDates);
@@ -143,7 +143,7 @@ export default function AppShell() {
           setIsUiLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading]);
+  }, [user, authLoading, isTestMode]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
@@ -152,12 +152,11 @@ export default function AppShell() {
   
     // Optimistic UI update
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
-    const updatedConversationsWithUser = conversations.map(c =>
-      c.id === forConversation.id
-        ? { ...c, messages: [...c.messages, optimisticUserMessage] }
-        : c
-    );
-    setConversations(updatedConversationsWithUser);
+    setConversations(prev => prev.map(c =>
+        c.id === forConversation.id
+            ? { ...c, messages: [...c.messages, optimisticUserMessage] }
+            : c
+    ));
     
     startSendMessageTransition(async () => {
       try {
@@ -171,6 +170,7 @@ export default function AppShell() {
           setConversations(prev =>
             prev.map(c => {
               if (c.id === forConversation.id) {
+                // Replace optimistic message with a final one
                 const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
                 const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, modelResponse];
                 let newTitle = c.title;
@@ -266,12 +266,14 @@ export default function AppShell() {
         const newConversations = conversations.filter(c => c.id !== conversationId);
         setConversations(newConversations);
 
+        let nextActiveId = activeConversationId;
         if (activeConversationId === conversationId) {
-             const nextConversation = newConversations.length > 0 ? newConversations[0] : null;
-             setActiveConversationId(nextConversation ? nextConversation.id : null);
-             if (!nextConversation) {
-                handleCreateNewConversation();
-             }
+            const nextConversation = newConversations.length > 0 ? newConversations[0] : null;
+            nextActiveId = nextConversation ? nextConversation.id : null;
+            setActiveConversationId(nextActiveId);
+            if (!nextConversation) {
+               handleCreateNewConversation();
+            }
         }
 
         if (!isTestMode) {
@@ -293,7 +295,7 @@ export default function AppShell() {
     );
   }
 
-  if (!user && !isTestMode) {
+  if (!user) {
     return <LoginPage login={login} />
   }
 
