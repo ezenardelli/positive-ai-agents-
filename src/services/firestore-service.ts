@@ -76,26 +76,25 @@ export async function saveMinute(
 // Helper to convert Firestore Timestamps to Dates in conversation objects
 const conversationFromDoc = (docSnapshot: any): Conversation => {
     const data = docSnapshot.data();
-    // Safely convert conversation createdAt timestamp
-    // If it's a serverTimestamp, it might be null on the client initially.
     const conversationCreatedAt = data.createdAt instanceof Timestamp 
         ? data.createdAt.toDate() 
-        : new Date(); // Fallback to current date
+        : new Date();
 
-    // Safely convert messages createdAt timestamps
     const messages = (data.messages || []).map((msg: any) => ({
         ...msg,
         createdAt: msg.createdAt instanceof Timestamp 
             ? msg.createdAt.toDate() 
-            : new Date(), // Fallback for messages as well
+            : new Date(),
     }));
 
     return {
         id: docSnapshot.id,
-        ...data,
+        userId: data.userId,
+        agentId: data.agentId,
+        clientContext: data.clientContext,
+        title: data.title || null,
         createdAt: conversationCreatedAt,
         messages: messages,
-        title: data.title || null,
     };
 }
 
@@ -107,7 +106,6 @@ export async function getConversations(userId: string): Promise<Conversation[]> 
     try {
         const convosRef = collection(db, 'conversations');
         // Simple query that doesn't require a custom index.
-        // Sorting will be handled on the client-side.
         const q = query(convosRef, where('userId', '==', userId));
         const querySnapshot = await getDocs(q);
         return querySnapshot.docs.map(conversationFromDoc);
@@ -118,9 +116,9 @@ export async function getConversations(userId: string): Promise<Conversation[]> 
             console.error("FIRESTORE INDEX REQUIRED: Please create the necessary composite index in your Firebase console.");
             throw new Error(`Error de base de datos: Se requiere un índice de Firestore que no existe. Por favor, créalo en la consola de Firebase.`);
         }
-        // If the collection doesn't exist, getDocs() throws. We'll return an empty array.
-        if (error instanceof Error && (error.message.includes("does not exist"))) {
-            console.warn("Conversations collection may not exist yet. This is normal on first run.");
+        // If the collection doesn't exist, getDocs() can throw. We'll return an empty array.
+        if (error instanceof Error && (error.message.includes("does not exist") || error.message.includes("permission-denied") || error.message.includes("PERMISSION_DENIED"))) {
+            console.warn("Conversations collection may not exist yet or permissions are missing. This is normal on first run or if rules are not set. Returning empty array.");
             return [];
         }
         throw error;
@@ -147,13 +145,12 @@ export async function createConversation(userId: string, agentId: AgentId): Prom
         userId,
         agentId,
         clientContext: null,
-        title: null,
+        title: 'Nueva Conversación',
         messages: [],
-        createdAt: serverTimestamp(), // Use serverTimestamp for consistency
+        createdAt: serverTimestamp(),
     };
     try {
         const docRef = await addDoc(collection(db, 'conversations'), newConvoData);
-        // Fetch the document we just created to return a consistent Conversation object
         const docSnap = await getDoc(docRef);
         return conversationFromDoc(docSnap);
     } catch (error) {

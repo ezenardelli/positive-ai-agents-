@@ -29,7 +29,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = false;
+const FORCE_TEST_MODE = process.env.NEXT_PUBLIC_FORCE_TEST_MODE === 'true';
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
@@ -41,10 +41,8 @@ export default function AppShell() {
 
   const { toast } = useToast();
   
-  // Determine if we are in test mode based on the flag OR if there's no real user.
   const isTestMode = FORCE_TEST_MODE || !user || (user && user.uid.startsWith('mock-'));
 
-  // Unified function to create a new conversation
   const handleCreateNewConversation = async (): Promise<Conversation | undefined> => {
     if (!user) return;
     
@@ -56,7 +54,7 @@ export default function AppShell() {
         newConversation = {
           id: `mock_convo_${Date.now()}`,
           userId: user.uid,
-          agentId: 'posiAgent', // Default agent
+          agentId: 'posiAgent', 
           clientContext: undefined,
           messages: [],
           title: 'Nueva Conversación',
@@ -65,7 +63,6 @@ export default function AppShell() {
       } else {
         console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
         const createdConvo = await createConversationAction(user.uid, 'posiAgent');
-        // Convert server timestamps to Date objects
         newConversation = {
           ...createdConvo,
           createdAt: createdConvo.createdAt ? new Date(createdConvo.createdAt) : new Date(),
@@ -112,22 +109,19 @@ export default function AppShell() {
         return;
     }
 
-    // This is the production logic
     getHistoryAction(user.uid)
       .then(history => {
-        // Convert all Firestore Timestamps to JS Dates
         const historyWithDates = history.map(c => ({
           ...c,
           createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
           messages: (c.messages || []).map(m => ({...m, createdAt: m.createdAt ? new Date(m.createdAt) : new Date()}))
-        })).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // Sort on client
+        })).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
         
         setConversations(historyWithDates);
   
         if (historyWithDates.length > 0) {
           setActiveConversationId(historyWithDates[0].id);
         } else {
-          // No history, create a new conversation to start
           handleCreateNewConversation();
         }
       })
@@ -149,9 +143,10 @@ export default function AppShell() {
 
   const handleSendMessage = (message: string, forConversation: Conversation) => {
     if (!user) return;
-  
-    // Optimistic UI update
+
     const optimisticUserMessage: Message = { id: `optimistic-user-${Date.now()}`, role: 'user', content: message, createdAt: new Date() };
+    const currentMessages = conversations.find(c => c.id === forConversation.id)?.messages ?? [];
+    
     setConversations(prev => prev.map(c =>
         c.id === forConversation.id
             ? { ...c, messages: [...c.messages, optimisticUserMessage] }
@@ -162,15 +157,11 @@ export default function AppShell() {
       try {
         if (isTestMode) {
           const modelResponse: Message = {
-            id: `msg-model-${Date.now()}`,
-            role: 'model',
-            content: 'Esta es una respuesta simulada en modo de prueba.',
-            createdAt: new Date(),
+            id: `msg-model-${Date.now()}`, role: 'model', content: 'Esta es una respuesta simulada en modo de prueba.', createdAt: new Date(),
           };
           setConversations(prev =>
             prev.map(c => {
               if (c.id === forConversation.id) {
-                // Replace optimistic message with a final one
                 const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
                 const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, modelResponse];
                 let newTitle = c.title;
@@ -185,20 +176,10 @@ export default function AppShell() {
           return;
         }
   
-        // Production logic
-        const currentMessages = conversations.find(c => c.id === forConversation.id)?.messages.filter(m => m.id !== optimisticUserMessage.id) ?? [];
-
         await sendMessageAction(
-          forConversation.id,
-          forConversation.agentId,
-          message,
-          forConversation.clientContext,
-          false, // isTestMode is always false here
-          currentMessages,
+          forConversation.id, forConversation.agentId, message, forConversation.clientContext, isTestMode, currentMessages,
         );
         
-        // Re-fetch history to ensure perfect sync with the database state
-        // This is the most robust way to ensure consistency
         const updatedHistory = await getHistoryAction(user.uid);
         const historyWithDates = updatedHistory.map(c => ({
             ...c,
@@ -214,7 +195,6 @@ export default function AppShell() {
           title: 'Error',
           description: `No se pudo enviar el mensaje. ${error instanceof Error ? error.message : ''}`,
         });
-        // Rollback optimistic message on error
         setConversations(prev =>
           prev.map(c =>
             c.id === forConversation.id ? { ...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id) } : c
@@ -231,7 +211,7 @@ export default function AppShell() {
       )
     );
     if (!isTestMode) {
-      updateConversationContextAction(conversationId, newAgentId, newClientContext, false)
+      updateConversationContextAction(conversationId, newAgentId, newClientContext, isTestMode)
         .catch(err => {
           console.error("Failed to update context in DB:", err);
           toast({
@@ -254,7 +234,7 @@ export default function AppShell() {
             const { success, error } = await updateConversationTitleAction(conversationId, finalTitle);
             if (!success) {
                 toast({ variant: 'destructive', title: 'Error', description: `No se pudo actualizar el nombre. ${error}` });
-                setConversations(originalConversations); // Rollback
+                setConversations(originalConversations);
             }
         }
     }
@@ -280,12 +260,11 @@ export default function AppShell() {
             const { success, error } = await deleteConversationAction(conversationId);
             if (!success) {
                 toast({ variant: 'destructive', title: 'Error', description: `No se pudo eliminar la conversación. ${error}` });
-                setConversations(originalConversations); // Rollback
+                setConversations(originalConversations);
             }
         }
     }
   };
-
 
   if (authLoading) {
     return (
@@ -295,16 +274,14 @@ export default function AppShell() {
     );
   }
 
-  if (!user) {
+  if (!user && !isTestMode) {
     return <LoginPage login={login} />
   }
-
-  const isProcessing = isUiLoading || isSendingMessage;
 
   return (
     <SidebarProvider>
       <Sidebar>
-          {user && (
+          {(user || isTestMode) && (
             <SidebarContentComponent
               user={user}
               conversations={conversations}
@@ -325,12 +302,12 @@ export default function AppShell() {
            </div>
         ) : (
             <ChatInterface
-              key={activeConversationId} // Re-mount when conversation changes
+              key={activeConversationId}
               conversation={activeConversation}
               onSendMessage={handleSendMessage}
               onNewConversation={handleCreateNewConversation}
               onContextChange={handleContextChange}
-              isLoading={isProcessing}
+              isLoading={isSendingMessage}
             />
         )}
       </SidebarInset>

@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow users to read and write only their own conversations
+    match /conversations/{conversationId} {
+      allow read, write, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    // Allow users to read and write only their own minutes
+    match /minutes/{minuteId} {
+        allow read, create: if request.auth != null;
+    }
+  }
+}

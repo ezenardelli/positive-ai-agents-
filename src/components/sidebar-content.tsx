@@ -31,10 +31,11 @@ import {
   DropdownMenuSeparator,
 } from './ui/dropdown-menu';
 import { AGENTS, CLIENTS } from '@/lib/data';
+import { useAuth } from '@/hooks/use-auth';
 
 
 interface SidebarContentComponentProps {
-  user: User;
+  user: User | null;
   conversations: Conversation[];
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
@@ -57,6 +58,9 @@ export default function SidebarContentComponent({
   onDelete,
 }: SidebarContentComponentProps) {
   
+  const { isTestMode, mockUser } = useAuth();
+  const displayUser = isTestMode ? mockUser : user;
+
   const groupConversationsByDate = (convos: Conversation[]) => {
     const groups: Record<string, Conversation[]> = {};
     convos.forEach(convo => {
@@ -183,16 +187,17 @@ export default function SidebarContentComponent({
 
       <SidebarFooter>
         <SidebarSeparator />
+        {displayUser && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <div className="flex items-center gap-3 p-2 cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors w-full">
               <Avatar className="h-9 w-9">
-                {user.photoURL && <AvatarImage src={user.photoURL} alt={user.displayName || 'User'} data-ai-hint="profile picture" />}
-                <AvatarFallback>{user.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
+                {displayUser.photoURL && <AvatarImage src={displayUser.photoURL} alt={displayUser.displayName || 'User'} data-ai-hint="profile picture" />}
+                <AvatarFallback>{displayUser.displayName?.charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
               <div className="flex flex-col text-left overflow-hidden">
-                <span className="text-sm font-medium text-sidebar-foreground truncate">{user.displayName}</span>
-                <span className="text-xs text-sidebar-foreground/70 truncate">{user.email}</span>
+                <span className="text-sm font-medium text-sidebar-foreground truncate">{displayUser.displayName}</span>
+                <span className="text-xs text-sidebar-foreground/70 truncate">{displayUser.email}</span>
               </div>
             </div>
           </DropdownMenuTrigger>
@@ -205,6 +210,7 @@ export default function SidebarContentComponent({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </SidebarFooter>
     </>
   );
