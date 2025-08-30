@@ -29,7 +29,7 @@ import LoginPage from './login-page';
 // `true`: Omite el login y Firebase. Usa estado local y un usuario simulado. (Para previsualizador/local)
 // `false`: Usa el login real y Firebase. (Para producción)
 // =================================================================================
-const FORCE_TEST_MODE = true;
+const FORCE_TEST_MODE = false;
 
 export default function AppShell() {
   const { user, loading: authLoading, logout, login } = useAuth();
@@ -143,7 +143,7 @@ export default function AppShell() {
           setIsUiLoading(false);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, isTestMode]);
+  }, [user, authLoading]);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
@@ -186,7 +186,8 @@ export default function AppShell() {
         }
   
         // Production logic
-        const currentMessages = conversations.find(c => c.id === forConversation.id)?.messages ?? [];
+        const currentMessages = conversations.find(c => c.id === forConversation.id)?.messages.filter(m => m.id !== optimisticUserMessage.id) ?? [];
+
         await sendMessageAction(
           forConversation.id,
           forConversation.agentId,
