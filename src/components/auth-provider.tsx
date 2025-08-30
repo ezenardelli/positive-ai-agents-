@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   // This is a global flag now, easy to check in other parts of the app if needed
-  const isTestMode = process.env.NEXT_PUBLIC_FORCE_TEST_MODE === 'true';
+  const isTestMode = process.env.NEXT_PUBLIC_FORCE_TEST_MODE === 'true' || process.env.NODE_ENV === 'development';
 
   useEffect(() => {
     // If test mode is forced, bypass Firebase entirely

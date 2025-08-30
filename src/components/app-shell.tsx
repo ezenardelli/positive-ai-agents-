@@ -130,8 +130,12 @@ export default function AppShell() {
         toast({
           variant: 'destructive',
           title: 'Error',
-          description: `No se pudo cargar el historial de conversaciones. ${err.message}`,
+          description: `No se pudo cargar el historial de conversaciones. ${err instanceof Error ? err.message : ''}`,
         });
+        // If history fails, still try to create a new conversation
+        if (conversations.length === 0) {
+            handleCreateNewConversation();
+        }
       })
       .finally(() => {
           setIsUiLoading(false);
@@ -156,26 +160,31 @@ export default function AppShell() {
     startSendMessageTransition(async () => {
       try {
         if (isTestMode) {
-          const modelResponse: Message = {
-            id: `msg-model-${Date.now()}`, role: 'model', content: 'Esta es una respuesta simulada en modo de prueba.', createdAt: new Date(),
-          };
-          setConversations(prev =>
-            prev.map(c => {
-              if (c.id === forConversation.id) {
-                const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
-                const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, modelResponse];
-                let newTitle = c.title;
-                if (finalMessages.length <= 2 && (c.title === 'Nueva Conversación' || !c.title)) {
-                  newTitle = message.substring(0, 30) + "...";
-                }
-                return { ...c, messages: finalMessages, title: newTitle };
-              }
-              return c;
-            })
-          );
-          return;
+            // In test mode, we just simulate the AI response and update state locally.
+            const modelResponse: Message = {
+                id: `msg-model-${Date.now()}`, 
+                role: 'model', 
+                content: 'Esta es una respuesta simulada en modo de prueba.', 
+                createdAt: new Date(),
+            };
+            setConversations(prev =>
+                prev.map(c => {
+                    if (c.id === forConversation.id) {
+                        const finalUserMessage = { ...optimisticUserMessage, id: `user-${Date.now()}` };
+                        const finalMessages = [...c.messages.filter(m => m.id !== optimisticUserMessage.id), finalUserMessage, modelResponse];
+                        let newTitle = c.title;
+                        if (finalMessages.length <= 2 && (c.title === 'Nueva Conversación' || !c.title)) {
+                            newTitle = message.substring(0, 30) + "...";
+                        }
+                        return { ...c, messages: finalMessages, title: newTitle };
+                    }
+                    return c;
+                })
+            );
+            return;
         }
   
+        // In production mode, call the server action and then re-fetch history to sync state.
         await sendMessageAction(
           forConversation.id, forConversation.agentId, message, forConversation.clientContext, isTestMode, currentMessages,
         );
@@ -195,6 +204,7 @@ export default function AppShell() {
           title: 'Error',
           description: `No se pudo enviar el mensaje. ${error instanceof Error ? error.message : ''}`,
         });
+        // Rollback optimistic update on error
         setConversations(prev =>
           prev.map(c =>
             c.id === forConversation.id ? { ...c, messages: c.messages.filter(m => m.id !== optimisticUserMessage.id) } : c
@@ -274,7 +284,7 @@ export default function AppShell() {
     );
   }
 
-  if (!user && !isTestMode) {
+  if (!user) {
     return <LoginPage login={login} />
   }
 
