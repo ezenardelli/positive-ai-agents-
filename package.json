@@ -9,7 +9,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check-config": "node scripts/check-config.js",
+    "test-firebase": "node scripts/test-firebase.js"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
@@ -42,6 +44,7 @@
     "dotenv": "^16.5.0",
     "embla-carousel-react": "^8.6.0",
     "firebase": "^11.9.1",
+    "firebase-admin": "^13.5.0",
     "genkit": "^1.14.1",
     "lucide-react": "^0.475.0",
     "mammoth": "^1.7.2",
@@ -54,6 +57,7 @@
     "react-markdown": "^9.0.1",
     "recharts": "^2.15.1",
     "remark-gfm": "^4.0.0",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.24.2"

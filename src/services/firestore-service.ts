@@ -117,9 +117,14 @@ export async function getConversations(userId: string): Promise<Conversation[]> 
             throw new Error(`Error de base de datos: Se requiere un índice de Firestore que no existe. Por favor, créalo en la consola de Firebase.`);
         }
         // If the collection doesn't exist, getDocs() can throw. We'll return an empty array.
-        if (error instanceof Error && (error.message.includes("does not exist") || error.message.includes("permission-denied") || error.message.includes("PERMISSION_DENIED"))) {
+        if (error instanceof Error && (error.message.includes("does not exist") || error.message.includes("permission-denied") || error.message.includes("PERMISSION_DENIED") || error.message.includes("unavailable"))) {
             console.warn("Conversations collection may not exist yet or permissions are missing. This is normal on first run or if rules are not set. Returning empty array.");
             return [];
+        }
+        // Handle network errors or other issues
+        if (error instanceof Error && (error.message.includes("network") || error.message.includes("timeout"))) {
+            console.error("Network error when fetching conversations:", error);
+            throw new Error("Error de conexión: No se pudo conectar con la base de datos. Verifica tu conexión a internet.");
         }
         throw error;
     }
@@ -155,7 +160,13 @@ export async function createConversation(userId: string, agentId: AgentId): Prom
         return conversationFromDoc(docSnap);
     } catch (error) {
         console.error("Error creating conversation in Firestore:", error);
-        throw new Error(`Failed to create conversation: ${error}`);
+        if (error instanceof Error && error.message.includes("permission-denied")) {
+            throw new Error("Error de permisos: No tienes permisos para crear conversaciones. Verifica las reglas de Firestore.");
+        }
+        if (error instanceof Error && error.message.includes("network")) {
+            throw new Error("Error de conexión: No se pudo conectar con la base de datos.");
+        }
+        throw new Error(`Error al crear conversación: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
 }
 

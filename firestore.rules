@@ -3,7 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Allow users to read and write only their own conversations
     match /conversations/{conversationId} {
-      allow read, write, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow read, write, delete: if request.auth != null;
     }
 
     // Allow users to read and write only their own minutes

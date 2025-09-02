@@ -1,0 +1,19 @@
+{"users": [
+{
+  "localId": "lH8wJyYWxxZmhW41T0fjRKgRoV13",
+  "email": "enardelli@positiveit.com.ar",
+  "emailVerified": true,
+  "displayName": "Ezequiel Nardelli",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKmXG_NJdee773Mec2vDrRdZpWfysqLfLwLsVemo37D0_dpuXo=s96-c",
+  "lastSignedInAt": "1756583317579",
+  "createdAt": "1756417932292",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "110556501684101452883",
+      "email": "enardelli@positiveit.com.ar",
+      "displayName": "Ezequiel Nardelli",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKmXG_NJdee773Mec2vDrRdZpWfysqLfLwLsVemo37D0_dpuXo=s96-c"
+    }
+  ]
+}]}

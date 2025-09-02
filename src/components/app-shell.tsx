@@ -10,17 +10,17 @@ import SidebarContentComponent from '@/components/sidebar-content';
 import { useEffect, useState, useTransition } from 'react';
 import type { AgentId, Conversation, Message } from '@/lib/types';
 import {
-  createConversationAction,
-  deleteConversationAction,
-  getHistoryAction,
-  sendMessageAction,
-  updateConversationContextAction,
-  updateConversationTitleAction
-} from '@/app/actions';
+  createConversation,
+  deleteConversation,
+  getConversations,
+  sendChatMessage,
+  updateConversationTitle
+} from '@/services/client-service';
+import AdminPanel from './admin-panel';
 import ChatInterface from './chat/chat-interface';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Settings } from 'lucide-react';
 import LoginPage from './login-page';
 
 
@@ -38,6 +38,8 @@ export default function AppShell() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isUiLoading, setIsUiLoading] = useState(true);
   const [isSendingMessage, startSendMessageTransition] = useTransition();
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const { toast } = useToast();
   
@@ -62,7 +64,7 @@ export default function AppShell() {
         };
       } else {
         console.log(`[AppShell] Creating new conversation for user ${user.uid}`);
-        const createdConvo = await createConversationAction(user.uid, 'posiAgent');
+        const createdConvo = await createConversation(user.uid, 'posiAgent');
         newConversation = {
           ...createdConvo,
           createdAt: createdConvo.createdAt ? new Date(createdConvo.createdAt) : new Date(),
@@ -99,6 +101,19 @@ export default function AppShell() {
     }
   
     setIsUiLoading(true);
+    
+    // Check if user is admin (for now, check email domain)
+    const checkAdminStatus = async () => {
+      try {
+        if (user.email?.endsWith('@positiveit.com.ar')) {
+          setIsAdmin(true);
+        }
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+      }
+    };
+    
+    checkAdminStatus();
 
     if (isTestMode) {
         console.log("[AppShell Test Mode] Starting in test mode. Auto-creating first conversation.");
@@ -109,7 +124,7 @@ export default function AppShell() {
         return;
     }
 
-    getHistoryAction(user.uid)
+    getConversations(user.uid)
       .then(history => {
         const historyWithDates = history.map(c => ({
           ...c,
@@ -127,11 +142,23 @@ export default function AppShell() {
       })
       .catch(err => {
         console.error("Failed to load history:", err);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: `No se pudo cargar el historial de conversaciones. ${err instanceof Error ? err.message : ''}`,
-        });
+        const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+        
+        // Si es un error de permisos o conexión, mostrar mensaje específico
+        if (errorMessage.includes('permisos') || errorMessage.includes('conexión')) {
+          toast({
+            variant: 'destructive',
+            title: 'Error de Conexión',
+            description: errorMessage,
+          });
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: `No se pudo cargar el historial de conversaciones. ${errorMessage}`,
+          });
+        }
+        
         // If history fails, still try to create a new conversation
         if (conversations.length === 0) {
             handleCreateNewConversation();
@@ -184,12 +211,12 @@ export default function AppShell() {
             return;
         }
   
-        // In production mode, call the server action and then re-fetch history to sync state.
-        await sendMessageAction(
+        // In production mode, call the client service and then re-fetch history to sync state.
+        await sendChatMessage(
           forConversation.id, forConversation.agentId, message, forConversation.clientContext, isTestMode, currentMessages,
         );
         
-        const updatedHistory = await getHistoryAction(user.uid);
+        const updatedHistory = await getConversations(user.uid);
         const historyWithDates = updatedHistory.map(c => ({
             ...c,
             createdAt: new Date(c.createdAt),
@@ -221,15 +248,8 @@ export default function AppShell() {
       )
     );
     if (!isTestMode) {
-      updateConversationContextAction(conversationId, newAgentId, newClientContext, isTestMode)
-        .catch(err => {
-          console.error("Failed to update context in DB:", err);
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: 'No se pudo guardar el cambio de contexto.',
-          });
-        });
+      // For now, just update local state since we're using client-side services
+      console.log("Context updated locally");
     }
   };
   
@@ -241,8 +261,9 @@ export default function AppShell() {
         setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, title: finalTitle } : c));
 
         if (!isTestMode) {
-            const { success, error } = await updateConversationTitleAction(conversationId, finalTitle);
-            if (!success) {
+            try {
+                await updateConversationTitle(conversationId, finalTitle);
+            } catch (error) {
                 toast({ variant: 'destructive', title: 'Error', description: `No se pudo actualizar el nombre. ${error}` });
                 setConversations(originalConversations);
             }
@@ -267,8 +288,9 @@ export default function AppShell() {
         }
 
         if (!isTestMode) {
-            const { success, error } = await deleteConversationAction(conversationId);
-            if (!success) {
+            try {
+                await deleteConversation(conversationId);
+            } catch (error) {
                 toast({ variant: 'destructive', title: 'Error', description: `No se pudo eliminar la conversación. ${error}` });
                 setConversations(originalConversations);
             }
@@ -302,23 +324,34 @@ export default function AppShell() {
               isLoading={isUiLoading}
               onEditTitle={handleEditTitle}
               onDelete={handleDeleteConversation}
+              isAdmin={isAdmin}
+              onToggleAdminPanel={() => setShowAdminPanel(!showAdminPanel)}
+              showAdminPanel={showAdminPanel}
             />
           )}
       </Sidebar>
       <SidebarInset className="flex flex-col h-screen p-0 bg-card shadow-none border-0">
-        {isUiLoading && !activeConversation ? (
-           <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-12 h-12 animate-spin text-primary" />
-           </div>
+        {showAdminPanel ? (
+          <div className="flex-1 overflow-auto p-6">
+            <AdminPanel />
+          </div>
         ) : (
-            <ChatInterface
-              key={activeConversationId}
-              conversation={activeConversation}
-              onSendMessage={handleSendMessage}
-              onNewConversation={handleCreateNewConversation}
-              onContextChange={handleContextChange}
-              isLoading={isSendingMessage}
-            />
+          <>
+            {isUiLoading && !activeConversation ? (
+               <div className="flex items-center justify-center h-full">
+                    <Loader2 className="w-12 h-12 animate-spin text-primary" />
+               </div>
+            ) : (
+                <ChatInterface
+                  key={activeConversationId}
+                  conversation={activeConversation}
+                  onSendMessage={handleSendMessage}
+                  onNewConversation={handleCreateNewConversation}
+                  onContextChange={handleContextChange}
+                  isLoading={isSendingMessage}
+                />
+            )}
+          </>
         )}
       </SidebarInset>
     </SidebarProvider>

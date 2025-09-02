@@ -13,6 +13,12 @@ export const AGENTS: Agent[] = [
     description: 'Genera minutas de reunión a partir de transcripciones.',
     needsClientContext: true,
   },
+  {
+    id: 'jiraAssistant',
+    name: 'JIRA Assistant',
+    description: 'Gestor de tarjetas JIRA para proyectos.',
+    needsClientContext: true,
+  },
 ];
 
 export const CLIENTS = [

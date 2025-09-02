@@ -18,7 +18,7 @@ import type { Conversation } from '@/lib/types';
 import type { User } from 'firebase/auth';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
-import { History, LogOut, MessageSquare, Plus, Bot, Briefcase, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { History, LogOut, MessageSquare, Plus, Bot, Briefcase, MoreHorizontal, Pencil, Trash2, Settings } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import { format, isToday, isYesterday } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -44,6 +44,9 @@ interface SidebarContentComponentProps {
   isLoading: boolean;
   onEditTitle: (id: string, currentTitle: string | null) => void;
   onDelete: (id: string) => void;
+  isAdmin?: boolean;
+  onToggleAdminPanel?: () => void;
+  showAdminPanel?: boolean;
 }
 
 export default function SidebarContentComponent({
@@ -56,6 +59,9 @@ export default function SidebarContentComponent({
   isLoading,
   onEditTitle,
   onDelete,
+  isAdmin = false,
+  onToggleAdminPanel,
+  showAdminPanel = false,
 }: SidebarContentComponentProps) {
   
   const { isTestMode, mockUser } = useAuth();
@@ -187,6 +193,19 @@ export default function SidebarContentComponent({
 
       <SidebarFooter>
         <SidebarSeparator />
+        {isAdmin && onToggleAdminPanel && (
+          <div className="p-2">
+            <Button
+              variant={showAdminPanel ? "default" : "outline"}
+              size="sm"
+              onClick={onToggleAdminPanel}
+              className="w-full justify-start"
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              <span>Administración</span>
+            </Button>
+          </div>
+        )}
         {displayUser && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

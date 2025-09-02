@@ -54,7 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        if(user.email?.endsWith('@positiveit.com.ar')) {
+        // En desarrollo, permitir cualquier email. En producción, restringir a @positiveit.com.ar
+        if (process.env.NODE_ENV === 'development' || user.email?.endsWith('@positiveit.com.ar')) {
             setUser(user);
         } else {
             signOut(auth);
@@ -78,9 +79,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({
-          'hd': 'positiveit.com.ar'
-      });
+      // Solo restringir dominio en producción
+      if (process.env.NODE_ENV === 'production') {
+        provider.setCustomParameters({
+            'hd': 'positiveit.com.ar'
+        });
+      }
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Error during sign-in:", error);
