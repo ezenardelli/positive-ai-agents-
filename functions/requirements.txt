@@ -1,14 +1,45 @@
+# Firebase Dependencies
 firebase_functions~=0.1.0
 firebase-admin>=6.0.0
+
+# AI and Genkit Dependencies
 genkit>=0.4.0
 google-generativeai>=0.8.0
+
+# MCP Core Dependencies
 mcp>=1.13.0
+pydantic>=2.10.5
+
+# Google API Dependencies
 google-api-python-client>=2.166.0
 google-auth>=2.15.0
 google-auth-oauthlib>=1.0.0
 google-auth-httplib2>=0.2.0
+
+# Web and HTTP Dependencies
 requests>=2.18.0
+httpx>=0.24.0
+aiohttp>=3.8.0
+
+# Utility Dependencies
 python-dotenv>=1.1.0
-pydantic>=2.10.5
 fastapi>=0.104.0
 uvicorn>=0.34.0
+
+# MCP Server Dependencies
+atlassian-python-api>=3.41.0  # For JIRA integration
+slack-sdk>=3.21.0             # For Slack integration
+PyGithub>=1.59.0              # For GitHub integration
+beautifulsoup4>=4.12.0        # For web scraping
+lxml>=4.9.0                   # For XML processing
+
+# Email Dependencies
+email-validator>=2.0.0        # Email validation
+
+# Database Dependencies (optional)
+psycopg2-binary>=2.9.0        # PostgreSQL
+pymongo>=4.0.0                # MongoDB
+
+# Development and Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

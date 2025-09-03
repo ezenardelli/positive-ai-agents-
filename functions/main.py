@@ -1,8 +1,17 @@
 import os
 import json
+import asyncio
 from firebase_functions import https_fn
 from firebase_admin import initialize_app, auth, firestore
 import google.generativeai as genai
+
+# MCP System Imports
+from mcp_tool_executor import get_tool_executor, execute_agent_tools, ExecutionContext
+from mcp_servers import get_tools_for_agent, get_function_definitions_for_gemini
+from mcp_auth import get_auth_manager
+
+# Agent Management System
+from agent_management import get_agent_manager
 
 # Initialize Firebase
 initialize_app()
@@ -15,7 +24,7 @@ CORS_HEADERS = {
     'Access-Control-Max-Age': '3600'
 }
 
-# Initialize Gemini
+# Initialize Gemini with Function Calling Support
 try:
     # Get API key from environment or Firebase config
     api_key = os.environ.get('GEMINI_API_KEY')
@@ -34,8 +43,10 @@ try:
     
     if api_key:
         genai.configure(api_key=api_key)
+        # Use Gemini model with function calling support
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         print(f"Gemini initialized with API key: {api_key[:10]}...")
+        print("Function calling support enabled")
     else:
         print("Warning: No Gemini API key found")
         model = None
@@ -43,12 +54,22 @@ except Exception as e:
     print(f"Error initializing Gemini: {e}")
     model = None
 
-# Agent configurations with tools
-AGENT_CONFIGS = {
+# Initialize MCP System
+print("Initializing MCP system...")
+mcp_initialized = False
+try:
+    # MCP initialization will happen on first use to avoid blocking startup
+    print("MCP system ready for initialization")
+except Exception as e:
+    print(f"MCP system initialization warning: {e}")
+
+# Legacy Agent Configurations (for migration only)
+# TODO: Remove after migration to Firestore is complete
+LEGACY_AGENT_CONFIGS = {
     "posiAgent": {
         "name": "Posi",
         "description": "Asistente general de Positive IT",
-        "tools": ["web_search", "google_calendar", "google_drive"],
+        "tools": ["web_search", "news_search", "get_page_content", "read_document", "list_files", "send_email"],
         "context_type": "general",
         "system_prompt": """Eres Posi, el asistente de IA de Positive IT. Tu objetivo es ayudar a los empleados con información sobre la empresa, procesos internos y cualquier consulta relacionada con Positive IT.
 
@@ -63,7 +84,7 @@ Responde de manera amigable y profesional. Si no tienes información específica
     "minutaMaker": {
         "name": "Minuta Maker",
         "description": "Creador de minutas de reuniones",
-        "tools": ["google_drive", "google_calendar", "email"],
+        "tools": ["create_document", "update_document", "read_document", "create_spreadsheet", "share_file", "send_email", "send_email_with_attachment"],
         "context_type": "client_specific",
         "system_prompt": """Eres Minuta Maker, un agente especializado en procesar transcripciones de reuniones y crear minutas profesionales.
 
@@ -108,7 +129,7 @@ Formato de minuta:
     "jiraAssistant": {
         "name": "JIRA Assistant",
         "description": "Gestor de tarjetas JIRA",
-        "tools": ["jira", "google_drive", "google_calendar"],
+        "tools": ["create_jira_issue", "update_issue", "get_issue", "search_issues", "add_comment", "transition_issue", "list_projects", "create_document"],
         "context_type": "client_specific",
         "system_prompt": """Eres JIRA Assistant, un agente especializado en crear y gestionar tarjetas en JIRA.
 
@@ -141,37 +162,15 @@ Si falta información, pregunta al usuario de forma clara y concisa."""
     }
 }
 
-# Available tools
-AVAILABLE_TOOLS = {
-    "web_search": {
-        "name": "Búsqueda Web",
-        "description": "Buscar información actualizada en internet",
-        "icon": "🌐"
-    },
-    "google_calendar": {
-        "name": "Google Calendar",
-        "description": "Acceder y gestionar calendarios",
-        "icon": "📅"
-    },
-    "google_drive": {
-        "name": "Google Drive",
-        "description": "Crear, leer y gestionar documentos",
-        "icon": "📁"
-    },
-    "jira": {
-        "name": "JIRA",
-        "description": "Crear y gestionar tickets de proyecto",
-        "icon": "🎫"
-    },
-    "email": {
-        "name": "Email",
-        "description": "Enviar correos electrónicos",
-        "icon": "📧"
-    }
-}
+# Backward compatibility - will be removed
+AGENT_CONFIGS = LEGACY_AGENT_CONFIGS
 
 @https_fn.on_request()
 def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
+    """Endpoint principal para chat con agentes - wrapper para función async"""
+    return asyncio.run(_chat_with_agent_async(req))
+
+async def _chat_with_agent_async(req: https_fn.Request) -> https_fn.Response:
     """Endpoint principal para chat con agentes"""
     print("chat_with_agent called - FULL VERSION")
     
@@ -207,32 +206,29 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
         
         print(f"Agent: {agent_id}, Message: {message}")
         
-        # Get agent config from Firestore first, fallback to defaults
-        db = firestore.client()
-        agent_configs_ref = db.collection('agent_configs').document(agent_id)
-        agent_doc = agent_configs_ref.get()
+        # Get agent config from Firestore using new Agent Management System
+        agent_manager = get_agent_manager()
+        agent_config = agent_manager.get_agent(agent_id)
         
         print(f"=== DEBUGGING CHAT WITH AGENT ===")
         print(f"Agent ID: {agent_id}")
-        print(f"Checking Firestore collection: agent_configs")
-        print(f"Document exists: {agent_doc.exists}")
+        print(f"Using Agent Management System")
         
-        agent_config = {}
-        if agent_doc.exists:
-            # Use custom configuration from Firestore
-            agent_config = agent_doc.to_dict()
-            print(f"✅ USING CUSTOM CONFIG")
-        else:
-            # Use default configuration
-            default_config = AGENT_CONFIGS.get(agent_id)
-            if not default_config:
-                return https_fn.Response(
-                    json.dumps({"error": "Agent not found"}), 
-                    status=404, 
-                    headers={**CORS_HEADERS, "Content-Type": "application/json"}
-                )
-            agent_config = default_config
-            print(f"❌ USING DEFAULT CONFIG")
+        if not agent_config:
+            return https_fn.Response(
+                json.dumps({"error": f"Agent '{agent_id}' not found or disabled"}), 
+                status=404, 
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
+        
+        if not agent_config.get('enabled', True):
+            return https_fn.Response(
+                json.dumps({"error": f"Agent '{agent_id}' is currently disabled"}), 
+                status=403, 
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
+        
+        print(f"USING DYNAMIC AGENT CONFIG")
             
         system_prompt = agent_config.get('system_prompt', '')
         tools = agent_config.get('tools', [])
@@ -250,15 +246,30 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
         if client_context:
             context_parts.append(f"\n\nContexto del cliente: {client_context}")
 
-        # Add available tools info to context
+        # Add MCP tools info to context
         tools_info = []
-        for tool_id in tools:
-            if tool_id in AVAILABLE_TOOLS:
-                tool = AVAILABLE_TOOLS[tool_id]
-                tools_info.append(f"- {tool['icon']} {tool['name']}: {tool['description']}")
-        
-        if tools_info:
-            context_parts.append(f"\n\nHerramientas disponibles:\n" + "\n".join(tools_info))
+        try:
+            from mcp_dispatcher import get_mcp_dispatcher
+            dispatcher = await get_mcp_dispatcher()
+            available_mcp_tools = dispatcher.get_available_tools()
+            
+            for tool_id in tools:
+                if tool_id in available_mcp_tools:
+                    # Get tool info from MCP system
+                    tool_info = dispatcher.get_tool_info(tool_id)
+                    if tool_info:
+                        tools_info.append(f"- {tool_id}: Available MCP tool")
+                    else:
+                        tools_info.append(f"- {tool_id}: MCP tool")
+            
+            if tools_info:
+                context_parts.append(f"\n\nHerramientas MCP disponibles:\n" + "\n".join(tools_info))
+                print(f"Added {len(tools_info)} MCP tools to context")
+        except Exception as e:
+            print(f"Warning: Could not load MCP tools info: {e}")
+            # Fallback to basic tools list
+            if tools:
+                context_parts.append(f"\n\nHerramientas: {', '.join(tools)}")
 
         final_context = "\n".join(context_parts)
         
@@ -270,6 +281,7 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
         history = []
         if conversation_id:
             try:
+                db = firestore.client()
                 conversation_ref = db.collection('conversations').document(conversation_id)
                 conversation_doc = conversation_ref.get()
                 if conversation_doc.exists:
@@ -286,19 +298,58 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
             except Exception as e:
                 print(f"Error retrieving conversation history: {e}")
         
-        # --- Gemini Response Generation ---
+        # --- MCP-Enhanced Gemini Response Generation ---
         response_text = ""
+        tool_results = []
+        
         if model:
             try:
-                # Start a chat session with system prompt and history
-                chat = model.start_chat(history=history)
+                # Get function definitions for this agent
+                function_definitions = get_function_definitions_for_gemini(tools)
+                
+                print(f"Agent {agent_id} has {len(function_definitions)} tools available")
+                
+                # Configure model with function calling if tools are available
+                if function_definitions:
+                    model_with_tools = genai.GenerativeModel(
+                        'gemini-1.5-flash-latest',
+                        tools=function_definitions
+                    )
+                    chat = model_with_tools.start_chat(history=history)
+                else:
+                    chat = model.start_chat(history=history)
                 
                 # Prepend system context to the user's message
                 full_message = f"{final_context}\n\nUsuario: {message}"
                 
+                # Send message and get response
                 response = chat.send_message(full_message)
-                response_text = response.text
+                response_text = response.text or ""
+                
                 print(f"Gemini response generated: {len(response_text)} chars")
+                
+                # Process function calls if any
+                if function_definitions:
+                    print("🔍 Checking for function calls...")
+                    
+                    # Use MCP system to execute tools
+                    try:
+                        enhanced_response, tool_results = await execute_agent_tools(
+                            llm_response=response_text,
+                            agent_id=agent_id,
+                            user_id=user_id,
+                            conversation_id=conversation_id,
+                            client_context=client_context,
+                            gemini_response=response
+                        )
+                        response_text = enhanced_response
+                        
+                        if tool_results:
+                            print(f"Executed {len(tool_results)} tools successfully")
+                        
+                    except Exception as e:
+                        print(f"Error executing tools: {e}")
+                        # Continue with original response if tool execution fails
                 
             except Exception as e:
                 print(f"Error with Gemini: {e}")
@@ -309,6 +360,7 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
         # Save to Firestore if conversation_id provided
         if conversation_id:
             try:
+                db = firestore.client()
                 conversation_ref = db.collection('conversations').document(conversation_id)
                 
                 # Add messages to conversation
@@ -338,12 +390,23 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
             except Exception as e:
                 print(f"Error saving to Firestore: {e}")
         
+        # Prepare response data
+        response_data = {
+            "response": response_text,
+            "agentId": agent_id,
+            "tools": tools,
+            "toolResults": [
+                {
+                    "toolName": result.tool_name,
+                    "success": result.success,
+                    "executionTime": result.execution_time
+                } for result in tool_results
+            ] if tool_results else [],
+            "toolsExecuted": len(tool_results)
+        }
+        
         return https_fn.Response(
-            json.dumps({
-                "response": response_text,
-                "agentId": agent_id,
-                "tools": tools
-            }),
+            json.dumps(response_data),
             status=200,
             headers={**CORS_HEADERS, "Content-Type": "application/json"}
         )
@@ -358,8 +421,8 @@ def chat_with_agent(req: https_fn.Request) -> https_fn.Response:
 
 @https_fn.on_request()
 def get_agent_configs(req: https_fn.Request) -> https_fn.Response:
-    """Endpoint para obtener configuraciones de agentes"""
-    print("get_agent_configs called - FULL VERSION")
+    """Endpoint para obtener configuraciones de agentes - DEPRECATED"""
+    print("get_agent_configs called - REDIRECTING TO NEW SYSTEM")
     
     # Handle CORS preflight
     if req.method == 'OPTIONS':
@@ -381,49 +444,43 @@ def get_agent_configs(req: https_fn.Request) -> https_fn.Response:
         token = auth_header.split('Bearer ')[1]
         decoded_token = auth.verify_id_token(token)
         user_id = decoded_token['uid']
+        user_email = decoded_token.get('email', '')
         
-        print(f"User authenticated: {user_id}")
+        print(f"User authenticated: {user_email}")
         
         # Check if user is admin
-        is_admin = user_id.endswith('@positiveit.com.ar') if '@' in user_id else False
+        is_admin = user_email.endswith('@positiveit.com.ar') if user_email else False
         
-        # Get custom configs from Firestore
-        db = firestore.client()
-        custom_configs = {}
-        try:
-            configs_ref = db.collection('agent_configs')
-            docs = configs_ref.stream()
-            for doc in docs:
-                custom_configs[doc.id] = doc.to_dict()
-        except Exception as e:
-            print(f"Error reading custom configs: {e}")
+        # Use new Agent Management System
+        agent_manager = get_agent_manager()
+        agents = agent_manager.get_enabled_agents()
         
-        # Return agent configs
+        # Convert to legacy format for backward compatibility
         configs = {}
-        for agent_id, config in AGENT_CONFIGS.items():
+        for agent_id, agent_data in agents.items():
             configs[agent_id] = {
-                "name": config["name"],
-                "description": config["description"],
-                "tools": config["tools"],
-                "context_type": config["context_type"],
-                "available_tools": {tool_id: AVAILABLE_TOOLS[tool_id] for tool_id in config["tools"] if tool_id in AVAILABLE_TOOLS}
+                "name": agent_data.get("name", agent_id),
+                "description": agent_data.get("description", ""),
+                "tools": agent_data.get("tools", []),
+                "context_type": agent_data.get("context_type", "general"),
+                "system_prompt": agent_data.get("system_prompt", ""),
+                "enabled": agent_data.get("enabled", True),
+                "avatar": agent_data.get("avatar", "robot"),
+                "category": agent_data.get("category", "general")
             }
-            
-            # Use custom config if available, otherwise default
-            if agent_id in custom_configs:
-                custom_config = custom_configs[agent_id]
-                configs[agent_id]["system_prompt"] = custom_config.get("system_prompt", config["system_prompt"])
-                configs[agent_id]["tools"] = custom_config.get("tools", config["tools"])
-            else:
-                configs[agent_id]["system_prompt"] = config["system_prompt"]
-                configs[agent_id]["tools"] = config["tools"]
             
             # Only return editable fields for admins
             if is_admin:
                 configs[agent_id]["editable"] = True
-                configs[agent_id]["available_tools_all"] = AVAILABLE_TOOLS
+                # Get MCP tools for admin
+                try:
+                    from mcp_servers import get_available_tools
+                    configs[agent_id]["available_tools_all"] = get_available_tools()
+                except Exception as e:
+                    print(f"Could not load MCP tools: {e}")
+                    configs[agent_id]["available_tools_all"] = []
         
-        print(f"Returning configs for user {user_id}, admin: {is_admin}")
+        print(f"Returning {len(configs)} agents for user {user_email}, admin: {is_admin}")
         
         return https_fn.Response(
             json.dumps({"agents": configs}), 
@@ -441,8 +498,8 @@ def get_agent_configs(req: https_fn.Request) -> https_fn.Response:
 
 @https_fn.on_request()
 def update_agent_config(req: https_fn.Request) -> https_fn.Response:
-    """Endpoint para actualizar configuraciones de agentes (solo admins)"""
-    print("update_agent_config called - FULL VERSION")
+    """Endpoint para actualizar configuraciones de agentes - USING NEW SYSTEM"""
+    print("update_agent_config called - USING AGENT MANAGEMENT SYSTEM")
     
     # Handle CORS preflight
     if req.method == 'OPTIONS':
@@ -469,7 +526,7 @@ def update_agent_config(req: https_fn.Request) -> https_fn.Response:
         # Check if user is admin
         is_admin = user_email.endswith('@positiveit.com.ar') if user_email else False
         
-        print(f"User {user_email} (uid: {user_id}) - Admin: {is_admin}")
+        print(f"User {user_email} - Admin: {is_admin}")
         
         if not is_admin:
             return https_fn.Response(
@@ -483,39 +540,53 @@ def update_agent_config(req: https_fn.Request) -> https_fn.Response:
         agent_id = data.get('agentId')
         system_prompt = data.get('systemPrompt')
         tools = data.get('tools', [])
+        name = data.get('name')
+        description = data.get('description')
+        context_type = data.get('contextType')
+        enabled = data.get('enabled')
+        avatar = data.get('avatar')
+        category = data.get('category')
         
-        print(f"Admin {user_email} (uid: {user_id}) updating agent {agent_id}")
+        print(f"Admin {user_email} updating agent {agent_id}")
         print(f"System prompt length: {len(system_prompt) if system_prompt else 0}")
         print(f"Tools received: {tools}")
-        print(f"Tools count: {len(tools)}")
         
-        if not agent_id or agent_id not in AGENT_CONFIGS:
+        if not agent_id:
             return https_fn.Response(
-                json.dumps({"error": "Invalid agent ID"}), 
+                json.dumps({"error": "Agent ID is required"}), 
                 status=400, 
                 headers={**CORS_HEADERS, "Content-Type": "application/json"}
             )
         
-        # Update agent configuration in Firestore
-        db = firestore.client()
-        agent_ref = db.collection('agent_configs').document(agent_id)
+        # Use Agent Management System
+        agent_manager = get_agent_manager()
         
-        update_data = {
-            'system_prompt': system_prompt,
-            'tools': tools,
-            'updated_by': user_id,
-            'updated_at': firestore.SERVER_TIMESTAMP
-        }
-        
-        agent_ref.set(update_data, merge=True)
-        
-        print(f"Agent {agent_id} configuration updated successfully")
-        
-        return https_fn.Response(
-            json.dumps({"message": "Agent configuration updated successfully"}), 
-            status=200, 
-            headers={**CORS_HEADERS, "Content-Type": "application/json"}
+        success = agent_manager.update_agent(
+            agent_id=agent_id,
+            name=name,
+            description=description,
+            system_prompt=system_prompt,
+            tools=tools,
+            context_type=context_type,
+            enabled=enabled,
+            user_id=user_id,
+            avatar=avatar,
+            category=category
         )
+        
+        if success:
+            print(f"Agent {agent_id} updated successfully via Agent Management System")
+            return https_fn.Response(
+                json.dumps({"message": "Agent configuration updated successfully"}), 
+                status=200, 
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
+        else:
+            return https_fn.Response(
+                json.dumps({"error": "Failed to update agent"}), 
+                status=400, 
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
         
     except Exception as e:
         print(f"Error in update_agent_config: {str(e)}")
@@ -524,3 +595,96 @@ def update_agent_config(req: https_fn.Request) -> https_fn.Response:
             status=500, 
             headers={**CORS_HEADERS, "Content-Type": "application/json"}
         )
+
+@https_fn.on_request()
+def get_mcp_status(req: https_fn.Request) -> https_fn.Response:
+    """Endpoint para obtener el estado del sistema MCP"""
+    return asyncio.run(_get_mcp_status_async(req))
+
+async def _get_mcp_status_async(req: https_fn.Request) -> https_fn.Response:
+    """Endpoint async para obtener el estado del sistema MCP"""
+    print("get_mcp_status called")
+    
+    # Handle CORS preflight
+    if req.method == 'OPTIONS':
+        return https_fn.Response(
+            status=200,
+            headers=CORS_HEADERS
+        )
+    
+    try:
+        # Verify authentication
+        auth_header = req.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return https_fn.Response(
+                json.dumps({"error": "Unauthorized"}), 
+                status=401, 
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
+        
+        token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(token)
+        user_id = decoded_token['uid']
+        user_email = decoded_token.get('email', '')
+        
+        print(f"MCP status requested by: {user_email}")
+        
+        # Get MCP system status
+        try:
+            executor = await get_tool_executor()
+            health_status = await executor.health_check()
+            execution_stats = executor.get_execution_stats()
+            
+            # Get available tools per agent
+            agent_tools = {}
+            for agent_id in AGENT_CONFIGS.keys():
+                agent_tools[agent_id] = get_tools_for_agent(agent_id)
+            
+            # Get authentication status
+            auth_manager = get_auth_manager()
+            auth_status = auth_manager.get_credential_status()
+            
+            status_data = {
+                "mcpSystem": health_status,
+                "executionStats": execution_stats,
+                "agentTools": agent_tools,
+                "authenticationStatus": auth_status,
+                "timestamp": firestore.SERVER_TIMESTAMP
+            }
+            
+            return https_fn.Response(
+                json.dumps(status_data, default=str),
+                status=200,
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
+            
+        except Exception as e:
+            print(f"Error getting MCP status: {e}")
+            return https_fn.Response(
+                json.dumps({
+                    "error": "MCP system not available",
+                    "details": str(e),
+                    "mcpSystem": {"status": "error", "message": str(e)}
+                }),
+                status=200,  # Return 200 but with error info
+                headers={**CORS_HEADERS, "Content-Type": "application/json"}
+            )
+        
+    except Exception as e:
+        print(f"Error in get_mcp_status: {str(e)}")
+        return https_fn.Response(
+            json.dumps({"error": f"Internal server error: {str(e)}"}), 
+            status=500, 
+            headers={**CORS_HEADERS, "Content-Type": "application/json"}
+        )
+
+# Import new CRUD endpoints for Firebase Functions
+# These will be automatically deployed as separate Cloud Functions
+from agent_endpoints import (
+    get_all_agents,
+    create_agent, 
+    update_agent,
+    delete_agent,
+    get_available_mcp_tools,
+    migrate_legacy_agents
+)

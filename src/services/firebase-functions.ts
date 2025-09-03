@@ -97,3 +97,84 @@ export async function updateAgentConfig(
     tools,
   });
 }
+
+// ===================================
+// NEW AGENT MANAGEMENT APIs
+// ===================================
+
+// Get all agents (new system)
+export async function getAllAgents(): Promise<{
+  agents: Record<string, any>;
+  count: number;
+  is_admin: boolean;
+}> {
+  return makeAuthenticatedRequest('/get_all_agents');
+}
+
+// Create new agent (admin only)
+export async function createAgent(data: {
+  agentId: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  tools: string[];
+  contextType?: string;
+  avatar?: string;
+  category?: string;
+}): Promise<{ message: string; agentId: string }> {
+  return makeAuthenticatedRequest('/create_agent', data);
+}
+
+// Update agent (admin only)
+export async function updateAgent(data: {
+  agentId: string;
+  name?: string;
+  description?: string;
+  systemPrompt?: string;
+  tools?: string[];
+  contextType?: string;
+  enabled?: boolean;
+  avatar?: string;
+  category?: string;
+}): Promise<{ message: string; agentId: string }> {
+  return makeAuthenticatedRequest('/update_agent', data);
+}
+
+// Delete agent (admin only)
+export async function deleteAgent(
+  agentId: string,
+  hardDelete: boolean = false
+): Promise<{ message: string; agentId: string }> {
+  return makeAuthenticatedRequest('/delete_agent', {
+    agentId,
+    hardDelete,
+  });
+}
+
+// Get available MCP tools
+export async function getAvailableMCPTools(): Promise<{
+  tools: Record<string, any>;
+  categories: Record<string, string[]>;
+  total_tools: number;
+  servers: string[];
+}> {
+  return makeAuthenticatedRequest('/get_available_mcp_tools');
+}
+
+// Migrate legacy agents (admin only)
+export async function migrateLegacyAgents(): Promise<{
+  message: string;
+  migrated_agents: string[];
+}> {
+  return makeAuthenticatedRequest('/migrate_legacy_agents');
+}
+
+// Get MCP system status
+export async function getMCPStatus(): Promise<{
+  mcpSystem: any;
+  executionStats: any;
+  agentTools: Record<string, string[]>;
+  authenticationStatus: Record<string, any>;
+}> {
+  return makeAuthenticatedRequest('/get_mcp_status');
+}

@@ -1,9 +1,9 @@
 'use client';
 
-import type { AgentId, Conversation } from '@/lib/types';
+import type { AgentId, Conversation, Agent } from '@/lib/types';
 import ChatMessages from './chat-messages';
 import ChatInput from './chat-input';
-import { AGENTS, CLIENTS } from '@/lib/data';
+import { getAgents, CLIENTS } from '@/lib/data';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Select,
@@ -12,8 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Bot, Briefcase } from 'lucide-react';
-import React, { useState } from 'react';
+import { Bot, Briefcase, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 
 interface ChatInterfaceProps {
   conversation: Conversation | undefined;
@@ -31,6 +31,26 @@ export default function ChatInterface({
   isLoading,
 }: ChatInterfaceProps) {
   const { user } = useAuth();
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  
+  // Load agents dynamically
+  useEffect(() => {
+    async function loadAgents() {
+      try {
+        setAgentsLoading(true);
+        const dynamicAgents = await getAgents();
+        setAgents(dynamicAgents);
+      } catch (error) {
+        console.error('Failed to load agents:', error);
+        // Fallback agents will be used by getAgents()
+      } finally {
+        setAgentsLoading(false);
+      }
+    }
+    
+    loadAgents();
+  }, []);
   
   // This is a guard against rendering without a conversation
   if (!conversation) {
@@ -39,12 +59,18 @@ export default function ChatInterface({
         <div className="text-center">
           <h1 className="text-2xl font-bold">Bienvenido</h1>
           <p className="text-muted-foreground">Crea o selecciona una conversación para empezar.</p>
+          {agentsLoading && (
+            <div className="mt-4">
+              <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+              <p className="text-sm text-muted-foreground mt-2">Cargando agentes...</p>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  const activeAgent = AGENTS.find(a => a.id === conversation.agentId);
+  const activeAgent = agents.find(a => a.id === conversation.agentId);
 
   const handleClientChange = (newClientId: string) => {
     const clientContext = newClientId || null;
@@ -52,7 +78,11 @@ export default function ChatInterface({
   };
 
   const handleAgentChange = (newAgentId: AgentId) => {
-    const newAgent = AGENTS.find(a => a.id === newAgentId)!;
+    const newAgent = agents.find(a => a.id === newAgentId);
+    if (!newAgent) {
+      console.error('Agent not found:', newAgentId);
+      return;
+    }
     // If the new agent doesn't need a client context, clear it.
     const newClientContext = newAgent.needsClientContext ? (conversation.clientContext || null) : null;
     onContextChange(conversation.id, newAgentId, newClientContext);
@@ -91,11 +121,23 @@ export default function ChatInterface({
               <SelectValue placeholder="Seleccionar Agente" />
             </SelectTrigger>
             <SelectContent>
-              {AGENTS.map(agent => (
-              <SelectItem key={agent.id} value={agent.id}>
-                {agent.name}
-              </SelectItem>
-              ))}
+              {agentsLoading ? (
+                <SelectItem value="loading" disabled>
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Cargando agentes...
+                  </div>
+                </SelectItem>
+              ) : (
+                agents.map(agent => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    <div className="flex items-center gap-2">
+                      <span>{agent.avatar || '🤖'}</span>
+                      <span>{agent.name}</span>
+                    </div>
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
         </div>
